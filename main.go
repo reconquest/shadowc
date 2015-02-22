@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/docopt/docopt-go"
@@ -30,36 +31,47 @@ func main() {
 	//log.Fatal("User gid must be 0")
 	//}
 
-	entries := ShadowEntries{}
-	for _, username := range args["-u"].([]string) {
-		entry, err := getShadowEntry(username)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
+	repos := args["-s"].([]string)
+	users := args["-u"].([]string)
 
-		entries = append(entries, entry)
+	shadows, err := getShadowEntries(users, repos)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	log.Printf("%#v", shadows)
+}
+
+func getShadowEntries(users, repoAddrs []string) (*ShadowEntries, error) {
+	var err error
+
+	entries := new(ShadowEntries)
+	for _, repoAddr := range repoAddrs {
+		repo, _ := NewKeyRepository(repoAddr)
+
+		entries, err = repo.GetShadowEntries(users)
+		if err == nil {
+			return entries, nil
+		} else {
+			log.Printf("%#v", err)
+
+			// try with next repo
+			continue
+		}
 	}
 
-	log.Printf("%#v", entries)
+	return nil, fmt.Errorf("Repos upstream has gone away")
 }
 
 func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1
 
 Usage:
-	shadowc [-u <username>...]
+	shadowc [-u <username>...] [-s <repo>...]
 
 Options:
-    -u <username>    Request shadow entry for this username. [default: root]`
+    -u <username>    Request shadow entry for this username. [default: root]
+	-s <repo>        Key repositories (may be distributed)
+`
 
 	return docopt.Parse(usage, nil, true, "shadowc 0.1", false)
-}
-
-func getShadowEntry(username string) (*ShadowEntry, error) {
-	entry := &ShadowEntry{
-		username: username,
-		hash:     "$1$blah$blah",
-	}
-
-	return entry, nil
 }

@@ -9,10 +9,10 @@ import (
 
 type (
 	ShadowEntry struct {
-		username string
-		hash     string
-		//another fields?
+		login string
+		hash  string
 	}
+
 	ShadowEntries []*ShadowEntry
 )
 
@@ -32,23 +32,24 @@ func main() {
 	//}
 
 	repos := args["-s"].([]string)
-	users := args["-u"].([]string)
+	logins := args["-u"].([]string)
 
-	shadows, err := getShadowEntries(users, repos)
+	shadows, err := getShadowEntries(logins, repos)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 	log.Printf("%#v", shadows)
+	writeShadows(shadows)
 }
 
-func getShadowEntries(users, repoAddrs []string) (*ShadowEntries, error) {
+func getShadowEntries(logins, repoAddrs []string) (*ShadowEntries, error) {
 	var err error
 
 	entries := new(ShadowEntries)
 	for _, repoAddr := range repoAddrs {
 		repo, _ := NewKeyRepository(repoAddr)
 
-		entries, err = repo.GetShadowEntries(users)
+		entries, err = repo.GetShadowEntries(logins)
 		if err == nil {
 			return entries, nil
 		} else {
@@ -66,10 +67,10 @@ func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1
 
 Usage:
-	shadowc [-u <username>...] [-s <repo>...]
+	shadowc [-u <login>...] [-s <repo>...]
 
 Options:
-    -u <username>    Request shadow entry for this username. [default: root]
+    -u <login>    request shadow entry for this login. [default: root]
 	-s <repo>        Key repositories (may be distributed)
 `
 

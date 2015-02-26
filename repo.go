@@ -15,17 +15,20 @@ func NewKeyRepository(addr string) (*KeyRepository, error) {
 	return repo, nil
 }
 
-func (repository KeyRepository) GetShadowEntries(
+func (repository KeyRepository) GetShadows(
 	logins []string,
-) (*ShadowEntries, error) {
+) (*Shadows, error) {
 	if repository.addr == "a" {
 		return nil, fmt.Errorf("fail with A server")
 	}
 
-	entry := &ShadowEntry{
+	shadow := &Shadow{
 		login: logins[0],
 		hash:  "$1$blah$blah",
 	}
 
-	return &ShadowEntries{entry}, nil
+	shadows := new(Shadows)
+	*shadows = append(*shadows, shadow)
+
+	return shadows, nil
 }

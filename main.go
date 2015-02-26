@@ -8,12 +8,12 @@ import (
 )
 
 type (
-	ShadowEntry struct {
+	Shadow struct {
 		login string
 		hash  string
 	}
 
-	ShadowEntries []*ShadowEntry
+	Shadows []*Shadow
 )
 
 func main() {
@@ -34,22 +34,28 @@ func main() {
 	repos := args["-s"].([]string)
 	logins := args["-u"].([]string)
 
-	shadows, err := getShadowEntries(logins, repos)
+	shadows, err := getShadows(logins, repos)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	log.Printf("%#v", shadows)
-	writeShadows(shadows)
+
+	switch {
+	case args["--print"]:
+		printShadows(shadows)
+	default:
+		writeShadows(shadows)
+	}
+
 }
 
-func getShadowEntries(logins, repoAddrs []string) (*ShadowEntries, error) {
+func getShadows(logins, repoAddrs []string) (*Shadows, error) {
 	var err error
 
-	entries := new(ShadowEntries)
+	entries := new(Shadows)
 	for _, repoAddr := range repoAddrs {
 		repo, _ := NewKeyRepository(repoAddr)
 
-		entries, err = repo.GetShadowEntries(logins)
+		entries, err = repo.GetShadows(logins)
 		if err == nil {
 			return entries, nil
 		} else {
@@ -63,15 +69,24 @@ func getShadowEntries(logins, repoAddrs []string) (*ShadowEntries, error) {
 	return nil, fmt.Errorf("Repos upstream has gone away")
 }
 
+func writeShadows(shadows *Shadows) {
+
+}
+
+func printShadows(shadows *Shadows) {
+
+}
+
 func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1
 
 Usage:
-	shadowc [-u <login>...] [-s <repo>...]
+	shadowc [-u <login>...] [-s <repo>...] [--print]
 
 Options:
-    -u <login>    request shadow entry for this login. [default: root]
-	-s <repo>        Key repositories (may be distributed)
+    -u <login>    add login [default: root]
+    -s <repo>     add key repository (may be distributed)
+    --print       print resulting <login;hash>
 `
 
 	return docopt.Parse(usage, nil, true, "shadowc 0.1", false)

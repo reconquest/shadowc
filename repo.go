@@ -16,15 +16,15 @@ func NewKeyRepository(addr string) (*KeyRepository, error) {
 }
 
 func (repository KeyRepository) GetShadowEntries(
-	users []string,
+	logins []string,
 ) (*ShadowEntries, error) {
 	if repository.addr == "a" {
 		return nil, fmt.Errorf("fail with A server")
 	}
 
 	entry := &ShadowEntry{
-		username: users[0],
-		hash:     "$1$blah$blah",
+		login: logins[0],
+		hash:  "$1$blah$blah",
 	}
 
 	return &ShadowEntries{entry}, nil

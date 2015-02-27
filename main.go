@@ -7,15 +7,6 @@ import (
 	"github.com/docopt/docopt-go"
 )
 
-type (
-	Shadow struct {
-		login string
-		hash  string
-	}
-
-	Shadows []*Shadow
-)
-
 func main() {
 	args, err := getArgs()
 	if err != nil {
@@ -41,9 +32,9 @@ func main() {
 
 	switch {
 	case args["--print"]:
-		printShadows(shadows)
-	default:
-		writeShadows(shadows)
+		fmt.Printf("%s", shadows)
+	//default:
+		//writeShadows(shadows)
 	}
 
 }
@@ -69,13 +60,6 @@ func getShadows(logins, repoAddrs []string) (*Shadows, error) {
 	return nil, fmt.Errorf("Repos upstream has gone away")
 }
 
-func writeShadows(shadows *Shadows) {
-
-}
-
-func printShadows(shadows *Shadows) {
-
-}
 
 func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1

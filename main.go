@@ -33,9 +33,13 @@ func main() {
 	switch {
 	case args["--print"]:
 		fmt.Printf("%s", shadows)
-	//default:
-		//writeShadows(shadows)
+	default:
+		writeShadows(shadows)
 	}
+
+}
+
+func writeShadows(shadows *Shadows) error  {
 
 }
 

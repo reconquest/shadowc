@@ -26,5 +26,5 @@ func (shadow *Shadow) String() string {
 	str := make([]string, 9)
 	str[0] = shadow.login
 	str[1] = shadow.hash
-	return strings.Join(str, "\n")
+	return strings.Join(str, ":")
 }

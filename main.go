@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"log"
+	"strings"
 
 	"github.com/docopt/docopt-go"
 )
@@ -39,8 +41,36 @@ func main() {
 
 }
 
-func writeShadows(shadows *Shadows) error  {
+func writeShadows(shadows *Shadows) error {
+	content, err := ioutil.ReadFile("/tmp/shadow")
+	if err != nil {
+		return err
+	}
 
+	lines := strings.Split(string(content), "\n")
+
+	for _, shadow := range *shadows {
+		found := false
+		for lineIndex, line := range lines {
+			if strings.HasPrefix(line, shadow.Login+";") {
+				lines[lineIndex] = fmt.Sprintf("%s", shadow)
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			lines = append(lines, fmt.Sprintf("%s", shadow))
+		}
+	}
+
+	err = ioutil.WriteFile(
+		"/tmp/shadow",
+		[]byte(strings.Join(lines, "\n")),
+		0600,
+	)
+
+	return err
 }
 
 func getShadows(logins, repoAddrs []string) (*Shadows, error) {
@@ -64,16 +94,15 @@ func getShadows(logins, repoAddrs []string) (*Shadows, error) {
 	return nil, fmt.Errorf("Repos upstream has gone away")
 }
 
-
 func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1
 
 Usage:
-	shadowc [-u <login>...] [-s <repo>...] [--print]
+	shadowc [-u <login>...] -s <repo>... [--print]
 
 Options:
     -u <login>    add login [default: root]
-    -s <repo>     add key repository (may be distributed)
+    -s <repo>     add key repository
     --print       print resulting <login;hash>
 `
 

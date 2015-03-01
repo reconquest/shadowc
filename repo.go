@@ -23,8 +23,8 @@ func (repository KeyRepository) GetShadows(
 	}
 
 	shadow := &Shadow{
-		login: logins[0],
-		hash:  "$1$blah$blah",
+		Login: logins[0],
+		Hash:  "$1$blah$blah",
 	}
 
 	shadows := new(Shadows)

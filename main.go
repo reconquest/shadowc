@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/docopt/docopt-go"
@@ -15,15 +18,6 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	//user, err := user.Current()
-	//if err != nil {
-	//log.Fatal(err.Error())
-	//}
-
-	//if user.Gid != "0" {
-	//log.Fatal("User gid must be 0")
-	//}
-
 	repos := args["-s"].([]string)
 	logins := args["-u"].([]string)
 
@@ -32,17 +26,34 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	switch {
-	case args["--print"]:
-		fmt.Printf("%s", shadows)
-	default:
-		writeShadows(shadows)
-	}
-
+	writeShadows(shadows, args["--stdin"].(bool), args["--stdout"].(bool))
 }
 
-func writeShadows(shadows *Shadows) error {
-	content, err := ioutil.ReadFile("/tmp/shadow")
+func writeShadows(shadows *Shadows, useStdin bool, useStdout bool) (err error) {
+	var input io.Reader
+	var output io.Writer
+	var shadowFd io.ReadWriteCloser
+
+	if !useStdin || !useStdout {
+		shadowFd, err = os.Open("/etc/shadow")
+		if err != nil {
+			return err
+		}
+		defer shadowFd.Close()
+	}
+
+	switch {
+	case useStdin:
+		input = os.Stdin
+	case !useStdin:
+		input = shadowFd
+	case useStdout:
+		input = os.Stdout
+	case !useStdout:
+		output = shadowFd
+	}
+
+	content, err := ioutil.ReadAll(input)
 	if err != nil {
 		return err
 	}
@@ -52,7 +63,7 @@ func writeShadows(shadows *Shadows) error {
 	for _, shadow := range *shadows {
 		found := false
 		for lineIndex, line := range lines {
-			if strings.HasPrefix(line, shadow.Login+";") {
+			if strings.HasPrefix(line, shadow.Login+":") {
 				lines[lineIndex] = fmt.Sprintf("%s", shadow)
 				found = true
 				break
@@ -64,12 +75,13 @@ func writeShadows(shadows *Shadows) error {
 		}
 	}
 
-	err = ioutil.WriteFile(
-		"/tmp/shadow",
-		[]byte(strings.Join(lines, "\n")),
-		0600,
-	)
+	writer := bufio.NewWriter(output)
+	_, err = writer.WriteString(strings.Join(lines, "\n"))
+	if err != nil {
+		return err
+	}
 
+	err = writer.Flush()
 	return err
 }
 
@@ -98,12 +110,13 @@ func getArgs() (map[string]interface{}, error) {
 	usage := `shadowc 0.1
 
 Usage:
-	shadowc [-u <login>...] -s <repo>... [--print]
+	shadowc [-u <login>...] -s <repo>... [--print] [--output <file>]
 
 Options:
-    -u <login>    add login [default: root]
-    -s <repo>     add key repository
-    --print       print resulting <login;hash>
+    -u <login>           add login [default: root]
+    -s <repo>            add key repository
+    --stdin              use stdin instead of /etc/shadow
+    --stdout             use stdout instead of /etc/shadow
 `
 
 	return docopt.Parse(usage, nil, true, "shadowc 0.1", false)

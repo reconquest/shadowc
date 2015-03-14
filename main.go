@@ -12,27 +12,39 @@ import (
 	"github.com/docopt/docopt-go"
 )
 
+const usage = `shadowc, login distribution client
+
+Usage:
+	shadowc [-u <login>...] -s <repo>... [--print] [--output <file>]
+
+Options:
+    -u <login>           add login [default: root]
+    -s <repo>            add key repository
+    --stdin              use stdin instead of /etc/shadow
+    --stdout             use stdout instead of /etc/shadow`
+
 func main() {
-	args, err := getArgs()
-	if err != nil {
-		log.Fatal(err.Error())
-	}
+	args, _ := docopt.Parse(usage, nil, true, "shadowc 1.0", false)
 
 	repos := args["-s"].([]string)
 	logins := args["-u"].([]string)
 
 	shadows, err := getShadows(logins, repos)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Fatal(err)
 	}
 
 	writeShadows(shadows, args["--stdin"].(bool), args["--stdout"].(bool))
 }
 
-func writeShadows(shadows *Shadows, useStdin bool, useStdout bool) (err error) {
-	var input io.Reader
-	var output io.Writer
-	var shadowFd io.ReadWriteCloser
+func writeShadows(
+	shadows *Shadows, useStdin bool, useStdout bool,
+) (err error) {
+	var (
+		input    io.Reader
+		output   io.Writer
+		shadowFd io.ReadWriteCloser
+	)
 
 	if !useStdin || !useStdout {
 		shadowFd, err = os.Open("/etc/shadow")
@@ -76,13 +88,11 @@ func writeShadows(shadows *Shadows, useStdin bool, useStdout bool) (err error) {
 	}
 
 	writer := bufio.NewWriter(output)
-	_, err = writer.WriteString(strings.Join(lines, "\n"))
-	if err != nil {
+	if _, err = writer.WriteString(strings.Join(lines, "\n")); err != nil {
 		return err
 	}
 
-	err = writer.Flush()
-	return err
+	return writer.Flush()
 }
 
 func getShadows(logins, repoAddrs []string) (*Shadows, error) {
@@ -104,20 +114,4 @@ func getShadows(logins, repoAddrs []string) (*Shadows, error) {
 	}
 
 	return nil, fmt.Errorf("Repos upstream has gone away")
-}
-
-func getArgs() (map[string]interface{}, error) {
-	usage := `shadowc 0.1
-
-Usage:
-	shadowc [-u <login>...] -s <repo>... [--print] [--output <file>]
-
-Options:
-    -u <login>           add login [default: root]
-    -s <repo>            add key repository
-    --stdin              use stdin instead of /etc/shadow
-    --stdout             use stdout instead of /etc/shadow
-`
-
-	return docopt.Parse(usage, nil, true, "shadowc 0.1", false)
 }

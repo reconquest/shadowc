@@ -1,34 +1,59 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strings"
+)
 
 type KeyRepository struct {
-	//alive bool
-	addr string
+	addr     string
+	resource *http.Client
 }
 
-func NewKeyRepository(addr string) (*KeyRepository, error) {
-	repo := &KeyRepository{
-		addr: addr,
+func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error) {
+	repository := &KeyRepository{
+		addr:     addr,
+		resource: resource,
 	}
 
-	return repo, nil
+	return repository, nil
 }
 
 func (repository KeyRepository) GetShadows(
-	logins []string,
+	users []string,
 ) (*Shadows, error) {
-	if repository.addr == "a" {
-		return nil, fmt.Errorf("fail with A server")
-	}
-
-	shadow := &Shadow{
-		Login: logins[0],
-		Hash:  "$1$blah$blah",
-	}
 
 	shadows := new(Shadows)
-	*shadows = append(*shadows, shadow)
+	for _, user := range users {
+		response, err := repository.resource.Get(
+			strings.TrimRight(repository.addr, "/") + "/t/" + user,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if response.StatusCode != 200 {
+			return nil, fmt.Errorf("error HTTP status: %s", response.Status)
+		}
+
+		body, err := ioutil.ReadAll(response.Body)
+
+		if err != nil {
+			return nil, err
+		}
+
+		defer response.Body.Close()
+
+		shadow := &Shadow{
+			User: user,
+			Hash: strings.TrimRight(string(body), "\n"),
+		}
+
+		*shadows = append(*shadows, shadow)
+	}
 
 	return shadows, nil
 }

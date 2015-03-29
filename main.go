@@ -22,8 +22,8 @@ Usage:
 Options:
     -u <user>    Specify a user which needs shadow entry [default: root]
     -s <addr>    Specify a key repository address.
-	-f <file>    Specify a shadow file path [default: /etc/shadow].
-	-c <cert>    Specify a certificate file path [default: /var/shadowd/cert/cert.pem].
+    -f <file>    Specify a shadow file path [default: /etc/shadow].
+    -c <cert>    Specify a certificate file path [default: /var/shadowd/cert/cert.pem].
 `
 
 func main() {

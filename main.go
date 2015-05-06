@@ -17,13 +17,13 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-	shadowc [options] [-u <user>...] -s <addr>...
+	shadowc [options] [-u <user>...] -s <addr>... -c <cert>
 
 Options:
-    -u <user>    Specify a user which needs shadow entry [default: root]
-    -s <addr>    Specify a key repository address.
-    -f <file>    Specify a shadow file path [default: /etc/shadow].
-    -c <cert>    Specify a certificate file path [default: /var/shadowd/cert/cert.pem].
+    -u <user> Set specified user which needs shadow entry [default: root]
+    -s <addr> Set specified login distribution server address.
+    -f <file> Set specified shadow file path [default: /etc/shadow].
+    -c <cert> Set specified certificate file path [default: /var/shadowd/cert/cert.pem].
 `
 
 func main() {
@@ -52,7 +52,6 @@ func writeShadows(shadows *Shadows, shadowFilepath string) (err error) {
 	if err != nil {
 		return err
 	}
-
 	defer file.Close()
 
 	content, err := ioutil.ReadAll(file)

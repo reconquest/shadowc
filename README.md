@@ -1,6 +1,6 @@
 # shadowc
 
-**shadowc** is a client of
+**shadowc** is a client for
 [the secure login distribution service](https://github.com/reconquest/shadowd).
 
 **shadowc** is not a user management tool, shadowc can not create
@@ -15,7 +15,7 @@ SSL certificate and trusted **shadowd** hosts. If not,
 [see documentation here](https://github.com/reconquest/shadowd).
 
 **shadowc** can be used either on initial server configuration or for changing
-hash entries at anytime when you need change passwords.
+hash entries anytime when you need change passwords.
 
 ### Options
 - `-s <addr>` — set specified login distribution server address. You can specify
@@ -30,12 +30,12 @@ hash entries at anytime when you need change passwords.
 
 **Warning**
 
-Do not copy `private.key` file to target server with shadowc, copy only
+Do not copy `key.pem` file to target server with shadowc, copy only
 `cert.pem`.
 
 #### Example
 
-Assume, you have certificate file and two shadowd servers on
+Assume that, you have certificate file and two shadowd servers on
 `shadowd0.in.example.com:8080` and `shadowd1.in.example.com:8080`, certificate
 file has been copied to `/data/shadowc/cert.pem` on target server.
 

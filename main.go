@@ -21,10 +21,10 @@ Usage:
 	shadowc [-c <cert>] [-f <file>] [-u <user>...] -s <addr>...
 
 Options:
-    -u <user> Set specified user which needs shadow entry [default: root]
-    -s <addr> Set specified login distribution server address.
-    -f <file> Set specified shadow file path [default: /etc/shadow].
-    -c <cert> Set specified certificate file path [default: /var/shadowd/cert/cert.pem].
+    -u <user>  Set specified user which needs shadow entry [default: root]
+    -s <addr>  Set specified login distribution server address.
+    -f <file>  Set specified shadow file path [default: /etc/shadow].
+    -c <cert>  Set specified certificate file path [default: /var/shadowd/cert/cert.pem].
 `
 
 func main() {

@@ -1,27 +1,31 @@
 # shadowc
 
-**shadowc** it is the client of [the secure login distribution
-service](https://github.com/reconquest/shadowd).
+**shadowc** is a client of
+[the secure login distribution service](https://github.com/reconquest/shadowd).
+
+**shadowc** is not a user management tool, shadowc can not create
+user/group, shadowc is hash entries manager, which communicate with **shadowd**
+server through REST API and request hash entries for users, afterwards
+**shadowc** overwrite `/etc/shadow` file with new hash entries.
 
 ## Usage
 
 It's considered that the **shadowd** server is configured earlier and you have
-SSL certificate and trusted **shadowd** hosts/addresses. If not,
-[see documentation here](https://github.com/reconquest/shadowc).
+SSL certificate and trusted **shadowd** hosts. If not,
+[see documentation here](https://github.com/reconquest/shadowd).
 
-You should run shadowc during init configuration of server, but actually you
-can run shadowc for changing hash entries at anytime when you need change
-passwords.
+**shadowc** can be used either on initial server configuration or for changing
+hash entries at anytime when you need change passwords.
 
 ### Options
-- `-s <addr>` - set specified login distribution server address. You can specify
+- `-s <addr>` — set specified login distribution server address. You can specify
     more than one server. All specified addresses should be trusted by SSL
     certificate.
-- `-u <user>` - set specified user which needs shadow entry. You can specify
+- `-u <user>` — set specified user which needs shadow entry. You can specify
     more than one user.
-- `-c <cert>`- set specified certificate file path. (default:
-    `/varr/shadowd/cert/cert.pem`)
-- `-f <file>` - set specified shadow file path. Can be usable if you use
+- `-c <cert>`— set specified certificate file path. (default:
+    `/var/shadowd/cert/cert.pem`)
+- `-f <file>` — set specified shadow file path. Can be usable if you use
     `chroot` on your server and shadowc runned outside the `chroot`.
 
 **Warning**
@@ -44,5 +48,5 @@ shadowc -s shadowd0.in.example.com:8888 -s shadowd1.in.example.com:8080 \
     -c /data/shadowc/cert.pem
 ```
 
-Afterwards shadowc will overwrite the shadow file (`/etc/shadow`) and change hash entries for
-John and Smith.
+Afterwards shadowc will overwrite the shadow file (`/etc/shadow`) and change
+hash entries for John and Smith.

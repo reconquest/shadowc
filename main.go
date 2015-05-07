@@ -18,7 +18,7 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-	shadowc [-f <file>] [-u <user>...] -s <addr>... -c <cert>
+	shadowc [-c <cert>] [-f <file>] [-u <user>...] -s <addr>...
 
 Options:
     -u <user> Set specified user which needs shadow entry [default: root]

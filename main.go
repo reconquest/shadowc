@@ -17,7 +17,7 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-	shadowc [options] [-u <user>...] -s <addr>... -c <cert>
+	shadowc [-f <file>] [-u <user>...] -s <addr>... -c <cert>
 
 Options:
     -u <user> Set specified user which needs shadow entry [default: root]
@@ -124,5 +124,5 @@ func getShadows(
 		}
 	}
 
-	return nil, fmt.Errorf("Repos upstream has gone away")
+	return nil, fmt.Errorf("repos upstream has gone away")
 }

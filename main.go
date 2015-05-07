@@ -38,8 +38,8 @@ func main() {
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
-	if _, err := os.Stat(certificateDirectory + "/private.key"); err == nil {
-		log.Fatalln("you should remove private.key from current server")
+	if _, err := os.Stat(certificateDirectory + "/key.pem"); err == nil {
+		log.Fatalln("you should remove key.pem from current server")
 	}
 
 	shadows, err := getShadows(users, addrs, certificateFilepath)
@@ -123,7 +123,7 @@ func getShadows(
 		if err == nil {
 			return shadows, nil
 		} else {
-			log.Printf("%s", err)
+			log.Println(err)
 
 			// try with next repo
 			continue

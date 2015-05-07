@@ -45,15 +45,17 @@ func (repository KeyRepository) GetShadows(
 		}
 
 		if response.StatusCode != 200 {
+			if response.StatusCode == 404 {
+			    return nil, fmt.Errorf("hash table for user '%s' not found")
+			}
+
 			return nil, fmt.Errorf("error HTTP status: %s", response.Status)
 		}
 
 		body, err := ioutil.ReadAll(response.Body)
-
 		if err != nil {
 			return nil, err
 		}
-
 		defer response.Body.Close()
 
 		shadow := &Shadow{

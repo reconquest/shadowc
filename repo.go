@@ -13,9 +13,9 @@ type KeyRepository struct {
 }
 
 func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error) {
-	addr = strings.TrimRight(repository.addr, "/")
+	addr = strings.TrimRight(addr, "/")
 	if strings.HasPrefix(addr, "http://") {
-		addr = "https://" + addr[7:0]
+		addr = "https://" + addr[7:]
 	}
 
 	repository := &KeyRepository{

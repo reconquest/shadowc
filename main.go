@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/docopt/docopt-go"
@@ -36,14 +37,19 @@ func main() {
 		certificateFilepath = args["-c"].(string)
 	)
 
+	certificateDirectory := filepath.Dir(certificateFilepath)
+	if _, err := os.Stat(certificateDirectory + "/private.key"); err == nil {
+		log.Fatalln("you should remove private.key from current server")
+	}
+
 	shadows, err := getShadows(users, addrs, certificateFilepath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 
 	err = writeShadows(shadows, shadowFilepath)
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 }
 
@@ -91,7 +97,7 @@ func getShadows(
 
 	pemBlock, _ := pem.Decode(pemData)
 	if pemBlock == nil {
-		return nil, fmt.Errorf("no PEM data is found in file")
+		return nil, fmt.Errorf("no PEM data is found in certificate file")
 	}
 
 	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
@@ -124,5 +130,5 @@ func getShadows(
 		}
 	}
 
-	return nil, fmt.Errorf("repos upstream has gone away")
+	return nil, fmt.Errorf("repositories upstream has gone away")
 }

@@ -102,7 +102,9 @@ func getShadows(
 
 	pemBlock, _ := pem.Decode(pemData)
 	if pemBlock == nil {
-		return nil, fmt.Errorf("no PEM data is found in certificate file")
+		return nil, fmt.Errorf(
+			"%s is not valid certificate file because PEM data is not found",
+		)
 	}
 
 	certificate, err := x509.ParseCertificate(pemBlock.Bytes)

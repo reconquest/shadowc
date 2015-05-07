@@ -13,6 +13,11 @@ type KeyRepository struct {
 }
 
 func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error) {
+	addr = strings.TrimRight(repository.addr, "/")
+	if strings.HasPrefix(addr, "http://") {
+		addr = "https://" + addr[7:0]
+	}
+
 	repository := &KeyRepository{
 		addr:     addr,
 		resource: resource,
@@ -28,7 +33,7 @@ func (repository KeyRepository) GetShadows(
 	shadows := new(Shadows)
 	for _, user := range users {
 		response, err := repository.resource.Get(
-			strings.TrimRight(repository.addr, "/") + "/t/" + user,
+			repository.addr + "/t/" + user,
 		)
 
 		if err != nil {

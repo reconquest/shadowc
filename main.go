@@ -39,7 +39,12 @@ func main() {
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
 	if _, err := os.Stat(certificateDirectory + "/key.pem"); err == nil {
-		log.Fatalln("you should remove key.pem from current server")
+		log.Fatalln(
+			"Key file SHOULD NOT be located on the client and " +
+				"SHOULD NOT leave shadowd host. " +
+				"Please, generate new certificate pair and " +
+				"replace certificate file on the clients.",
+		)
 	}
 
 	shadows, err := getShadows(users, addrs, certificateFilepath)
@@ -123,12 +128,12 @@ func getShadows(
 		if err == nil {
 			return shadows, nil
 		} else {
-			log.Println(err)
+			log.Printf("shadowd host '%s' returned error: %s", addr, err)
 
 			// try with next repo
 			continue
 		}
 	}
 
-	return nil, fmt.Errorf("repositories upstream has gone away")
+	return nil, fmt.Errorf("all shadowd hosts return errors")
 }

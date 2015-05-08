@@ -58,19 +58,22 @@ func main() {
 	}
 }
 
-func writeShadows(shadows *Shadows, shadowFilepath string) (err error) {
-	file, err := os.OpenFile(shadowFilepath, os.O_RDWR, 0600)
+func writeShadows(shadows *Shadows, shadowFilepath string) error {
+	temporaryFile, err := ioutil.TempFile(os.TempDir(), "shadowc")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer temporaryFile.Close()
 
-	content, err := ioutil.ReadAll(file)
+	shadowEntries, err := ioutil.ReadFile(shadowFilepath)
 	if err != nil {
 		return err
 	}
 
-	lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	lines := strings.Split(
+		strings.TrimRight(string(shadowEntries), "\n"),
+		"\n",
+	)
 
 	for _, shadow := range *shadows {
 		found := false
@@ -83,11 +86,23 @@ func writeShadows(shadows *Shadows, shadowFilepath string) (err error) {
 		}
 
 		if !found {
-			lines = append(lines, fmt.Sprintf("%s", shadow))
+			return fmt.Errorf(
+				"can't found user '%s' in the shadow file", shadow.User,
+			)
 		}
 	}
 
-	_, err = file.WriteString(strings.Join(lines, "\n") + "\n")
+	_, err = temporaryFile.WriteString(strings.Join(lines, "\n") + "\n")
+	if err != nil {
+		return err
+	}
+
+	err = temporaryFile.Close()
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(temporaryFile.Name(), shadowFilepath)
 
 	return err
 }

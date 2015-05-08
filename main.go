@@ -59,18 +59,21 @@ func main() {
 }
 
 func writeShadows(shadows *Shadows, shadowFilepath string) error {
-	shadowFile, err := os.OpenFile(shadowFilepath, os.O_RDWR, 0600)
+	temporaryFile, err := ioutil.TempFile(os.TempDir(), "shadowc")
 	if err != nil {
 		return err
 	}
-	defer shadowFile.Close()
+	defer temporaryFile.Close()
 
-	content, err := ioutil.ReadAll(shadowFile)
+	shadowEntries, err := ioutil.ReadFile(shadowFilepath)
 	if err != nil {
 		return err
 	}
 
-	lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	lines := strings.Split(
+		strings.TrimRight(string(shadowEntries), "\n"),
+		"\n",
+	)
 
 	for _, shadow := range *shadows {
 		found := false
@@ -89,17 +92,17 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 		}
 	}
 
-	_, err = shadowFile.Seek(0, 0)
+	_, err = temporaryFile.WriteString(strings.Join(lines, "\n") + "\n")
 	if err != nil {
 		return err
 	}
 
-	err = shadowFile.Truncate(0)
+	err = temporaryFile.Close()
 	if err != nil {
 		return err
 	}
 
-	_, err = shadowFile.WriteString(strings.Join(lines, "\n") + "\n")
+	err = os.Rename(temporaryFile.Name(), shadowFilepath)
 
 	return err
 }

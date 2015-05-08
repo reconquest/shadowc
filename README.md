@@ -39,8 +39,13 @@ Assume that, you have certificate file and two shadowd servers on
 `shadowd0.in.example.com:8080` and `shadowd1.in.example.com:8080`, certificate
 file has been copied to `/data/shadowc/cert.pem` on target server.
 
-So for getting hash entries for engineers John and Smith you should run command
-on target server:
+If you want to grant password access for users `john` and `smith` on some
+server, you should invoke following command, which will obtain unique hashes
+for that server for specified users and place them into `/etc/shadow` file.
+
+After that, `john` and `smith` will be able to connect to the server using
+passwords, which were set on **shadowd** server while generating hash tables
+for that users.
 
 ```
 shadowc -s shadowd0.in.example.com:8888 -s shadowd1.in.example.com:8080 \

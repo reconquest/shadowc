@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -36,35 +37,56 @@ func (repository KeyRepository) GetShadows(
 
 	shadows := new(Shadows)
 	for _, user := range users {
-		response, err := repository.resource.Get(
-			repository.addr + "/t/" + user,
-		)
-
+		hash, err := repository.getHash(user)
 		if err != nil {
 			return nil, err
 		}
 
-		if response.StatusCode != 200 {
-			if response.StatusCode == 404 {
-			    return nil, fmt.Errorf("hash table for user '%s' not found")
-			}
-
-			return nil, fmt.Errorf("error HTTP status: %s", response.Status)
-		}
-
-		body, err := ioutil.ReadAll(response.Body)
+		proofHash, err := repository.getHash(user)
 		if err != nil {
 			return nil, err
 		}
-		defer response.Body.Close()
+
+		if hash == proofHash {
+			log.Printf(
+				"Warning, hash for user '%s' was recently requested; "+
+					"possible break in attempt.",
+				user,
+			)
+		}
 
 		shadow := &Shadow{
 			User: user,
-			Hash: strings.TrimRight(string(body), "\n"),
+			Hash: hash,
 		}
 
 		*shadows = append(*shadows, shadow)
 	}
 
 	return shadows, nil
+}
+
+func (repository KeyRepository) getHash(user string) (string, error) {
+	response, err := repository.resource.Get(
+		repository.addr + "/t/" + user,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	if response.StatusCode != 200 {
+		if response.StatusCode == 404 {
+			return "", fmt.Errorf("hash table for user '%s' not found")
+		}
+
+		return "", fmt.Errorf("error HTTP status: %s", response.Status)
+	}
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+
+	return strings.TrimRight(string(body), "\n"), nil
 }

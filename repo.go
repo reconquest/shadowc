@@ -76,7 +76,9 @@ func (repository KeyRepository) getHash(user string) (string, error) {
 
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
-			return "", fmt.Errorf("hash table for user '%s' not found")
+			return "", fmt.Errorf(
+				"hash table for user '%s' not found", user,
+			)
 		}
 
 		return "", fmt.Errorf("error HTTP status: %s", response.Status)

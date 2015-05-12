@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -59,7 +60,9 @@ func main() {
 }
 
 func writeShadows(shadows *Shadows, shadowFilepath string) error {
-	temporaryFile, err := ioutil.TempFile(os.TempDir(), "shadowc")
+	// create temporary file in same directory for preventing 'cross-device
+	// link' error.
+	temporaryFile, err := ioutil.TempFile(path.Dir(shadowFilepath), "shadow")
 	if err != nil {
 		return err
 	}

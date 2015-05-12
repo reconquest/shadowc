@@ -32,17 +32,17 @@ func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error
 }
 
 func (repository KeyRepository) GetShadows(
-	users []string,
+	users []string, pool string,
 ) (*Shadows, error) {
 
 	shadows := new(Shadows)
 	for _, user := range users {
-		hash, err := repository.getHash(user)
+		hash, err := repository.getHash(user, pool)
 		if err != nil {
 			return nil, err
 		}
 
-		proofHash, err := repository.getHash(user)
+		proofHash, err := repository.getHash(user, pool)
 		if err != nil {
 			return nil, err
 		}
@@ -66,9 +66,11 @@ func (repository KeyRepository) GetShadows(
 	return shadows, nil
 }
 
-func (repository KeyRepository) getHash(user string) (string, error) {
+func (repository KeyRepository) getHash(
+	user string, pool string,
+) (string, error) {
 	response, err := repository.resource.Get(
-		repository.addr + "/t/" + user,
+		repository.addr + "/t/" + user + "/" + pool,
 	)
 	if err != nil {
 		return "", err

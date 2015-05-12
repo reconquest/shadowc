@@ -18,15 +18,17 @@ SSL certificate and trusted **shadowd** hosts. If not,
 hash entries anytime when you need change passwords.
 
 ### Options
-- `-s <addr>` — set specified login distribution server address. You can specify
+- `-s <addr>` — use specified login distribution server address. You can specify
     more than one server. All specified addresses should be trusted by SSL
     certificate.
 - `-u <user>` — set specified user which needs shadow entry. You can specify
     more than one user.
-- `-c <cert>`— set specified certificate file path. (default:
+- `-p <pool>` — use specified hash tables pool. (default: `main`)
+- `-c <cert>` — set specified certificate file path. (default:
     `/var/shadowd/cert/cert.pem`)
 - `-f <file>` — set specified shadow file path. Can be usable if you use
-    `chroot` on your server and shadowc runned outside the `chroot`.
+    `chroot` on your server and shadowc runned outside the `chroot`. (default:
+    `/etc/shadow`)
 
 **Warning**
 

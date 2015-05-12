@@ -19,13 +19,14 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-	shadowc [-c <cert>] [-f <file>] [-u <user>...] -s <addr>...
+    shadowc [-c <cert>] [-f <file>] [-p <pool>] [-u <user>...] -s <addr>...
 
 Options:
     -u <user>  Set specified user which needs shadow entry [default: root]
-    -s <addr>  Set specified login distribution server address.
-    -f <file>  Set specified shadow file path [default: /etc/shadow].
+    -s <addr>  Use specified login distribution server address.
+    -p <pool>  Use specified hash tables pool [default: main].
     -c <cert>  Set specified certificate file path [default: /etc/shadowc/cert.pem].
+    -f <file>  Set specified shadow file path [default: /etc/shadow].
 `
 
 func main() {
@@ -34,6 +35,7 @@ func main() {
 	var (
 		addrs               = args["-s"].([]string)
 		users               = args["-u"].([]string)
+		pool = args["-p"].(string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
 	)
@@ -48,7 +50,7 @@ func main() {
 		)
 	}
 
-	shadows, err := getShadows(users, addrs, certificateFilepath)
+	shadows, err := getShadows(users, addrs, pool, certificateFilepath)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -111,7 +113,8 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 }
 
 func getShadows(
-	users, addrs []string, certificateFilepath string,
+	users []string, addrs []string, pool string,
+	certificateFilepath string,
 ) (*Shadows, error) {
 	pemData, err := ioutil.ReadFile(certificateFilepath)
 	if err != nil {
@@ -144,7 +147,7 @@ func getShadows(
 	for _, addr := range addrs {
 		repo, _ := NewKeyRepository(addr, resource)
 
-		shadows, err := repo.GetShadows(users)
+		shadows, err := repo.GetShadows(users, pool)
 		if err == nil {
 			return shadows, nil
 		} else {

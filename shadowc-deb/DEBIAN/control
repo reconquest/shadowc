@@ -1,0 +1,8 @@
+Package: shadowc
+Version: $VERSION$
+Architecture: amd64
+Section: unknown
+Priority: extra
+Maintainer: Egor Kovetskiy <e.kovetskiy@office.ngs.ru>
+Homepage: https://github.com/reconquest/shadowc
+Description: client for shadowd

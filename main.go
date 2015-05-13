@@ -24,7 +24,7 @@ Usage:
 Options:
     -u <user>  Set specified user which needs shadow entry [default: root]
     -s <addr>  Use specified login distribution server address.
-    -p <pool>  Use specified hash tables pool [default: main].
+    -p <pool>  Use specified hash tables pool on servers.
     -c <cert>  Set specified certificate file path [default: /etc/shadowc/cert.pem].
     -f <file>  Set specified shadow file path [default: /etc/shadow].
 `
@@ -35,7 +35,7 @@ func main() {
 	var (
 		addrs               = args["-s"].([]string)
 		users               = args["-u"].([]string)
-		pool = args["-p"].(string)
+		pool                = args["-p"].(string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
 	)
@@ -147,7 +147,7 @@ func getShadows(
 	for _, addr := range addrs {
 		repo, _ := NewKeyRepository(addr, resource)
 
-		shadows, err := repo.GetShadows(users, pool)
+		shadows, err := repo.GetShadows(pool, users)
 		if err == nil {
 			return shadows, nil
 		} else {

@@ -32,7 +32,7 @@ func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error
 }
 
 func (repository KeyRepository) GetShadows(
-	users []string, pool string,
+	pool string, users []string,
 ) (*Shadows, error) {
 
 	shadows := new(Shadows)
@@ -67,10 +67,17 @@ func (repository KeyRepository) GetShadows(
 }
 
 func (repository KeyRepository) getHash(
-	user string, pool string,
+	pool string, user string,
 ) (string, error) {
+	var token string
+	if pool != "" {
+		token = pool + "/" + user
+	} else {
+		token = user
+	}
+
 	response, err := repository.resource.Get(
-		repository.addr + "/t/" + user + "/" + pool,
+		repository.addr + "/t/" + token,
 	)
 	if err != nil {
 		return "", err

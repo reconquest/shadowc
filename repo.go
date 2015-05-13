@@ -34,24 +34,31 @@ func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error
 func (repository KeyRepository) GetShadows(
 	pool string, users []string,
 ) (*Shadows, error) {
+	var token string
 
 	shadows := new(Shadows)
 	for _, user := range users {
-		hash, err := repository.getHash(user, pool)
+		if pool != "" {
+			token = pool + "/" + user
+		} else {
+			token = user
+		}
+
+		hash, err := repository.getHash(token)
 		if err != nil {
 			return nil, err
 		}
 
-		proofHash, err := repository.getHash(user, pool)
+		proofHash, err := repository.getHash(token)
 		if err != nil {
 			return nil, err
 		}
 
 		if hash == proofHash {
 			log.Printf(
-				"Warning, hash for user '%s' was recently requested; "+
+				"Warning, hash for token '%s' was recently requested; "+
 					"possible break in attempt.",
-				user,
+				token,
 			)
 		}
 
@@ -66,15 +73,7 @@ func (repository KeyRepository) GetShadows(
 	return shadows, nil
 }
 
-func (repository KeyRepository) getHash(
-	pool string, user string,
-) (string, error) {
-	var token string
-	if pool != "" {
-		token = pool + "/" + user
-	} else {
-		token = user
-	}
+func (repository KeyRepository) getHash(token string) (string, error) {
 
 	response, err := repository.resource.Get(
 		repository.addr + "/t/" + token,
@@ -86,7 +85,7 @@ func (repository KeyRepository) getHash(
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
 			return "", fmt.Errorf(
-				"hash table for user '%s' not found", user,
+				"hash table for token '%s' not found", token,
 			)
 		}
 

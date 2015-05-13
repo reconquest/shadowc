@@ -35,7 +35,6 @@ func main() {
 	var (
 		addrs               = args["-s"].([]string)
 		users               = args["-u"].([]string)
-		pool                = args["-p"].(string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
 	)
@@ -48,6 +47,11 @@ func main() {
 				"Please, generate new certificate pair and " +
 				"replace certificate file on the clients.",
 		)
+	}
+
+	var pool string
+	if args["-p"] != nil {
+		pool = args["-p"].(string)
 	}
 
 	shadows, err := getShadows(users, addrs, pool, certificateFilepath)

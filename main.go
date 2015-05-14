@@ -19,24 +19,30 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-    shadowc [-c <cert>] [-f <file>] [-p <pool>] [-u <user>...] -s <addr>...
+    shadowc [options] [-p <pool>] -s <addr>... -u <user>...
+    shadowc [options] [-p <pool>] -s <addr>... --all
 
 Options:
-    -u <user>  Set specified user which needs shadow entry [default: root]
     -s <addr>  Use specified login distribution server address.
     -p <pool>  Use specified hash tables pool on servers.
+    -u <user>  Set specified user which needs shadow entry.
+    --all      Try to update shadow entries for all users from shadow file which
+               already has passwords.
     -c <cert>  Set specified certificate file path [default: /etc/shadowc/cert.pem].
     -f <file>  Set specified shadow file path [default: /etc/shadow].
 `
 
 func main() {
-	args, _ := docopt.Parse(usage, nil, true, "shadowc 1.0", false)
+	args, err := docopt.Parse(usage, nil, true, "shadowc 1.1", false)
+	if err != nil {
+		panic(err)
+	}
 
 	var (
 		addrs               = args["-s"].([]string)
-		users               = args["-u"].([]string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
+		updateAllMode       = args["--all"].(bool)
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
@@ -54,10 +60,24 @@ func main() {
 		pool = args["-p"].(string)
 	}
 
-	shadows, err := getShadows(users, addrs, pool, certificateFilepath)
+	var users []string
+	if updateAllMode {
+		users, err = getUsersWithPasswords(shadowFilepath)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	} else {
+		users = args["-u"].([]string)
+	}
+
+	shadows, err := getShadows(
+		users, addrs, pool, certificateFilepath, updateAllMode,
+	)
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	fmt.Printf("Writing %d shadow entries...\n", len(*shadows))
 
 	err = writeShadows(shadows, shadowFilepath)
 	if err != nil {
@@ -119,6 +139,7 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 func getShadows(
 	users []string, addrs []string, pool string,
 	certificateFilepath string,
+	updateAllMode bool,
 ) (*Shadows, error) {
 	pemData, err := ioutil.ReadFile(certificateFilepath)
 	if err != nil {
@@ -148,19 +169,74 @@ func getShadows(
 		},
 	}
 
-	for _, addr := range addrs {
-		repo, _ := NewKeyRepository(addr, resource)
+	shadows := Shadows{}
 
-		shadows, err := repo.GetShadows(pool, users)
-		if err == nil {
-			return shadows, nil
-		} else {
-			log.Printf("shadowd host '%s' returned error: %s", addr, err)
+	for _, user := range users {
 
-			// try with next repo
-			continue
+		for addrIndex, addr := range addrs {
+			repo, _ := NewKeyRepository(addr, resource)
+
+			shadow, err := repo.GetShadow(pool, user)
+
+			if err != nil {
+				log.Printf(
+					"shadowd host '%s' returned error: %s", addr, err,
+				)
+
+				switch err.(type) {
+				case HashTableNotFoundError:
+					continue
+
+				default:
+					addrs = append(addrs[:addrIndex], addrs[addrIndex+1:]...)
+					continue
+				}
+			}
+
+			shadows = append(shadows, shadow)
+			break
+		}
+
+		if len(addrs) == 0 {
+			return nil, fmt.Errorf("all shadowd hosts return errors")
 		}
 	}
 
-	return nil, fmt.Errorf("all shadowd hosts return errors")
+	if len(shadows) == 0 {
+		return nil, fmt.Errorf(
+			"all shadowd hosts are not aware of '%s' users with '%s' pool",
+			strings.Join(users, "', '"),
+			pool,
+		)
+	}
+
+	return &shadows, nil
+}
+
+func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
+	contents, err := ioutil.ReadFile(shadowFilepath)
+	if err != nil {
+		return []string{}, err
+	}
+
+	users := []string{}
+
+	lines := strings.Split(string(contents), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+
+		shadowEntry := strings.Split(line, ":")
+		if len(shadowEntry) != 9 {
+			return []string{}, fmt.Errorf("invalid shadow entry line: %s", line)
+		}
+
+		hash := shadowEntry[1]
+		if len(hash) > 1 && hash[0] == '$' {
+			users = append(users, shadowEntry[0])
+		}
+	}
+
+	return users, nil
 }

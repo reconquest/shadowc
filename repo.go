@@ -13,6 +13,8 @@ type KeyRepository struct {
 	resource *http.Client
 }
 
+type HashTableNotFoundError error
+
 func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error) {
 	addr = strings.TrimRight(addr, "/")
 	if strings.HasPrefix(addr, "http://") {
@@ -31,46 +33,41 @@ func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error
 	return repository, nil
 }
 
-func (repository KeyRepository) GetShadows(
-	pool string, users []string,
-) (*Shadows, error) {
+func (repository KeyRepository) GetShadow(
+	pool string, user string,
+) (*Shadow, error) {
 	var token string
 
-	shadows := new(Shadows)
-	for _, user := range users {
-		if pool != "" {
-			token = pool + "/" + user
-		} else {
-			token = user
-		}
-
-		hash, err := repository.getHash(token)
-		if err != nil {
-			return nil, err
-		}
-
-		proofHash, err := repository.getHash(token)
-		if err != nil {
-			return nil, err
-		}
-
-		if hash == proofHash {
-			log.Printf(
-				"Warning, hash for token '%s' was recently requested; "+
-					"possible break in attempt.",
-				token,
-			)
-		}
-
-		shadow := &Shadow{
-			User: user,
-			Hash: hash,
-		}
-
-		*shadows = append(*shadows, shadow)
+	if pool != "" {
+		token = pool + "/" + user
+	} else {
+		token = user
 	}
 
-	return shadows, nil
+	hash, err := repository.getHash(token)
+	if err != nil {
+		return nil, err
+	}
+
+	proofHash, err := repository.getHash(token)
+	if err != nil {
+		return nil, err
+	}
+
+	if hash == proofHash {
+		log.Printf(
+			"Warning, hash for token '%s' was recently requested; "+
+				"possible break in attempt.",
+			token,
+		)
+	}
+
+	shadow := &Shadow{
+		User: user,
+		Hash: hash,
+	}
+
+	return shadow, nil
 }
 
 func (repository KeyRepository) getHash(token string) (string, error) {
@@ -86,7 +83,7 @@ func (repository KeyRepository) getHash(token string) (string, error) {
 		if response.StatusCode == 404 {
 			return "", fmt.Errorf(
 				"hash table for token '%s' not found", token,
-			)
+			).(HashTableNotFoundError)
 		}
 
 		return "", fmt.Errorf("error HTTP status: %s", response.Status)

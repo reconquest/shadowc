@@ -14,26 +14,32 @@ It's considered that the **shadowd** server is configured earlier and you have
 SSL certificate and trusted **shadowd** hosts. If not,
 [see documentation here](https://github.com/reconquest/shadowd).
 
+After generating SSL certificate, you should copy `cert.pem` file to server with
+shadowc to `/etc/shadowc/` directory. But be careful and do not copy private key
+`key.pem`, this file should not leave **shadowd** hosts.
+
 **shadowc** can be used either on initial server configuration or for changing
 hash entries anytime when you need change passwords.
 
-### Options
-- `-s <addr>` — use specified login distribution server address. You can specify
-    more than one server. All specified addresses should be trusted by SSL
-    certificate.
-- `-u <user>` — set specified user which needs shadow entry. You can specify
-    more than one user.
-- `-p <pool>` — use specified hash tables pool. (default: `main`)
+For running **shadowc** you should specify users which needs update shadow entry
+via `-u <user>` argument, so you can specify more than one user. If you want
+update all shadow entries for all users from shadow file which already has
+passwors you can specify flag `--all`.
+
+Also you must specify **shadowd** addresses via `-s <addr>` argument. You can
+specify more than one server, but all specified addresses should be trusted by
+SSL certificate.
+
+If you generated hash tables by tokens with pools you should specify pool name
+via `-p <pool>` argument, and **shadowc** will request hashes for users with
+this pool.
+
+### Possible Options
 - `-c <cert>` — set specified certificate file path. (default:
-    `/var/shadowd/cert/cert.pem`)
+    `/etc/shadowc/cert.pem`)
 - `-f <file>` — set specified shadow file path. Can be usable if you use
     `chroot` on your server and shadowc runned outside the `chroot`. (default:
     `/etc/shadow`)
-
-**Warning**
-
-Do not copy `key.pem` file to target server with shadowc, copy only
-`cert.pem`.
 
 #### Example
 

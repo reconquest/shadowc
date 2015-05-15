@@ -96,9 +96,11 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
-			return "", fmt.Errorf(
-				"hash table for token '%s' not found", token,
-			).(HashTableNotFoundError)
+			return "", HashTableNotFoundError(
+				fmt.Errorf(
+					"hash table for token '%s' not found", token,
+				),
+			)
 		}
 
 		return "", fmt.Errorf("error HTTP status: %s", response.Status)
@@ -157,7 +159,9 @@ func NewShadowdUpstream(
 	return &upstream, nil
 }
 
-func (upstream *ShadowdUpstream) GetAliveShadowdHosts() ([]*ShadowdHost, error) {
+func (upstream *ShadowdUpstream) GetAliveShadowdHosts() (
+	[]*ShadowdHost, error,
+) {
 	hosts := []*ShadowdHost{}
 	for _, host := range upstream.hosts {
 		if host.IsAlive() {

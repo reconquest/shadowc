@@ -209,7 +209,7 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 		}
 
 		shadowEntry := strings.Split(line, ":")
-		if len(shadowEntry) != 9 {
+		if len(shadowEntry) < 2 {
 			return []string{}, fmt.Errorf(
 				"invalid shadow entry line: %s", line,
 			)

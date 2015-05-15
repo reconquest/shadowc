@@ -1,13 +1,9 @@
 package main
 
 import (
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -42,7 +38,7 @@ func main() {
 		addrs               = args["-s"].([]string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
-		updateAllMode       = args["--all"].(bool)
+		updateAllUsersMode  = args["--all"].(bool)
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
@@ -55,13 +51,13 @@ func main() {
 		)
 	}
 
-	var pool string
+	var hashTablesPool string
 	if args["-p"] != nil {
-		pool = args["-p"].(string)
+		hashTablesPool = args["-p"].(string)
 	}
 
 	var users []string
-	if updateAllMode {
+	if updateAllUsersMode {
 		users, err = getUsersWithPasswords(shadowFilepath)
 		if err != nil {
 			log.Fatal(err.Error())
@@ -70,8 +66,13 @@ func main() {
 		users = args["-u"].([]string)
 	}
 
+	shadowdUpstream, err := NewShadowdUpstream(addrs, certificateFilepath)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
 	shadows, err := getShadows(
-		users, addrs, pool, certificateFilepath, updateAllMode,
+		users, shadowdUpstream, hashTablesPool, updateAllUsersMode,
 	)
 	if err != nil {
 		log.Fatalln(err)
@@ -137,76 +138,56 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 }
 
 func getShadows(
-	users []string, addrs []string, pool string,
-	certificateFilepath string,
-	updateAllMode bool,
+	users []string, shadowdUpstream *ShadowdUpstream, hashTablesPool string,
+	updateAllUsersMode bool,
 ) (*Shadows, error) {
-	pemData, err := ioutil.ReadFile(certificateFilepath)
-	if err != nil {
-		return nil, err
-	}
-
-	pemBlock, _ := pem.Decode(pemData)
-	if pemBlock == nil {
-		return nil, fmt.Errorf(
-			"%s is not valid certificate file because PEM data is not found",
-		)
-	}
-
-	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	certPool := x509.NewCertPool()
-	certPool.AddCert(certificate)
-
-	resource := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				RootCAs: certPool,
-			},
-		},
-	}
-
 	shadows := Shadows{}
-
 	for _, user := range users {
+		shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+		if err != nil {
+			return nil, err
+		}
 
-		for addrIndex, addr := range addrs {
-			repo, _ := NewKeyRepository(addr, resource)
-
-			shadow, err := repo.GetShadow(pool, user)
-
+		shadowFound := false
+		for _, shadowdHost := range shadowdHosts {
+			shadow, err := shadowdHost.GetShadow(hashTablesPool, user)
 			if err != nil {
-				log.Printf(
-					"shadowd host '%s' returned error: %s", addr, err,
-				)
-
 				switch err.(type) {
 				case HashTableNotFoundError:
-					continue
+					if !updateAllUsersMode {
+						return nil, err
+					}
 
 				default:
-					addrs = append(addrs[:addrIndex], addrs[addrIndex+1:]...)
-					continue
+					shadowdHost.SetIsAlive(false)
 				}
+
+				log.Printf(
+					"shadowd host '%s' returned error: '%s'",
+					shadowdHost.GetAddr(), err.Error(),
+				)
+
+				continue
 			}
 
+			shadowFound = true
 			shadows = append(shadows, shadow)
 			break
 		}
 
-		if len(addrs) == 0 {
-			return nil, fmt.Errorf("all shadowd hosts return errors")
+		if updateAllUsersMode && !shadowFound {
+			log.Printf(
+				"all shadowd hosts are not aware of user '%s' with '%s' pool\n",
+				user, hashTablesPool,
+			)
 		}
 	}
 
-	if len(shadows) == 0 {
+	if updateAllUsersMode && len(shadows) == 0 {
 		return nil, fmt.Errorf(
 			"all shadowd hosts are not aware of '%s' users with '%s' pool",
 			strings.Join(users, "', '"),
-			pool,
+			hashTablesPool,
 		)
 	}
 
@@ -229,7 +210,9 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 
 		shadowEntry := strings.Split(line, ":")
 		if len(shadowEntry) != 9 {
-			return []string{}, fmt.Errorf("invalid shadow entry line: %s", line)
+			return []string{}, fmt.Errorf(
+				"invalid shadow entry line: %s", line,
+			)
 		}
 
 		hash := shadowEntry[1]

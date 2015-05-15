@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -8,32 +11,45 @@ import (
 	"strings"
 )
 
-type KeyRepository struct {
+type ShadowdHost struct {
 	addr     string
 	resource *http.Client
+	alive    bool
+}
+
+type ShadowdUpstream struct {
+	hosts []*ShadowdHost
 }
 
 type HashTableNotFoundError error
 
-func NewKeyRepository(addr string, resource *http.Client) (*KeyRepository, error) {
-	addr = strings.TrimRight(addr, "/")
-	if strings.HasPrefix(addr, "http://") {
-		addr = addr[7:]
+func NewShadowdHost(addr string, resource *http.Client) (*ShadowdHost, error) {
+	if strings.Contains(addr, "://") {
+		return nil, fmt.Errorf("shadowd host must be in the format host:port")
 	}
 
-	if !strings.HasPrefix(addr, "https://") {
-		addr = "https://" + addr
-	}
-
-	repository := &KeyRepository{
+	shadowdHost := &ShadowdHost{
 		addr:     addr,
 		resource: resource,
+		alive:    true,
 	}
 
-	return repository, nil
+	return shadowdHost, nil
 }
 
-func (repository KeyRepository) GetShadow(
+func (shadowdHost *ShadowdHost) SetIsAlive(alive bool) {
+	shadowdHost.alive = alive
+}
+
+func (shadowdHost *ShadowdHost) IsAlive() bool {
+	return shadowdHost.alive
+}
+
+func (shadowdHost *ShadowdHost) GetAddr() string {
+	return shadowdHost.addr
+}
+
+func (shadowdHost *ShadowdHost) GetShadow(
 	pool string, user string,
 ) (*Shadow, error) {
 	var token string
@@ -44,12 +60,12 @@ func (repository KeyRepository) GetShadow(
 		token = user
 	}
 
-	hash, err := repository.getHash(token)
+	hash, err := shadowdHost.getHash(token)
 	if err != nil {
 		return nil, err
 	}
 
-	proofHash, err := repository.getHash(token)
+	proofHash, err := shadowdHost.getHash(token)
 	if err != nil {
 		return nil, err
 	}
@@ -70,10 +86,9 @@ func (repository KeyRepository) GetShadow(
 	return shadow, nil
 }
 
-func (repository KeyRepository) getHash(token string) (string, error) {
-
-	response, err := repository.resource.Get(
-		repository.addr + "/t/" + token,
+func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
+	response, err := shadowdHost.resource.Get(
+		"https://" + shadowdHost.addr + "/t/" + token,
 	)
 	if err != nil {
 		return "", err
@@ -96,4 +111,63 @@ func (repository KeyRepository) getHash(token string) (string, error) {
 	defer response.Body.Close()
 
 	return strings.TrimRight(string(body), "\n"), nil
+}
+
+func NewShadowdUpstream(
+	addrs []string, certificateFilepath string,
+) (*ShadowdUpstream, error) {
+	pemData, err := ioutil.ReadFile(certificateFilepath)
+	if err != nil {
+		return nil, err
+	}
+
+	pemBlock, _ := pem.Decode(pemData)
+	if pemBlock == nil {
+		return nil, fmt.Errorf(
+			"%s is not valid certificate file because PEM data is not found",
+		)
+	}
+
+	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	certsPool := x509.NewCertPool()
+	certsPool.AddCert(certificate)
+
+	resource := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs: certsPool,
+			},
+		},
+	}
+
+	upstream := ShadowdUpstream{}
+	for _, addr := range addrs {
+		shadowdHost, err := NewShadowdHost(addr, resource)
+		if err != nil {
+			return nil, err
+		}
+
+		upstream.hosts = append(upstream.hosts, shadowdHost)
+	}
+
+	return &upstream, nil
+}
+
+func (upstream *ShadowdUpstream) GetAliveShadowdHosts() ([]*ShadowdHost, error) {
+	hosts := []*ShadowdHost{}
+	for _, host := range upstream.hosts {
+		if host.IsAlive() {
+			hosts = append(hosts, host)
+		}
+	}
+
+	if len(hosts) < 0 {
+		return nil, fmt.Errorf("no living shadowd hosts")
+	}
+
+	return hosts, nil
 }

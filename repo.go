@@ -127,6 +127,7 @@ func NewShadowdUpstream(
 	if pemBlock == nil {
 		return nil, fmt.Errorf(
 			"%s is not valid certificate file because PEM data is not found",
+			certificateFilepath,
 		)
 	}
 

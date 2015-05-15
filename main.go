@@ -38,7 +38,7 @@ func main() {
 		addrs               = args["-s"].([]string)
 		shadowFilepath      = args["-f"].(string)
 		certificateFilepath = args["-c"].(string)
-		updateAllUsersMode  = args["--all"].(bool)
+		allUsersUpdateMode  = args["--all"].(bool)
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
@@ -57,7 +57,7 @@ func main() {
 	}
 
 	var users []string
-	if updateAllUsersMode {
+	if allUsersUpdateMode {
 		users, err = getUsersWithPasswords(shadowFilepath)
 		if err != nil {
 			log.Fatal(err.Error())
@@ -72,7 +72,7 @@ func main() {
 	}
 
 	shadows, err := getShadows(
-		users, shadowdUpstream, hashTablesPool, updateAllUsersMode,
+		users, shadowdUpstream, hashTablesPool, allUsersUpdateMode,
 	)
 	if err != nil {
 		log.Fatalln(err)
@@ -139,7 +139,7 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 
 func getShadows(
 	users []string, shadowdUpstream *ShadowdUpstream, hashTablesPool string,
-	updateAllUsersMode bool,
+	allUsersUpdateMode bool,
 ) (*Shadows, error) {
 	shadows := Shadows{}
 	for _, user := range users {
@@ -154,7 +154,7 @@ func getShadows(
 			if err != nil {
 				switch err.(type) {
 				case HashTableNotFoundError:
-					if !updateAllUsersMode {
+					if !allUsersUpdateMode {
 						return nil, err
 					}
 
@@ -175,17 +175,17 @@ func getShadows(
 			break
 		}
 
-		if updateAllUsersMode && !shadowFound {
+		if allUsersUpdateMode && !shadowFound {
 			log.Printf(
-				"all shadowd hosts are not aware of user '%s' with '%s' pool\n",
+				"all shadowd hosts are not aware of user '%s' within '%s' pool\n",
 				user, hashTablesPool,
 			)
 		}
 	}
 
-	if updateAllUsersMode && len(shadows) == 0 {
+	if allUsersUpdateMode && len(shadows) == 0 {
 		return nil, fmt.Errorf(
-			"all shadowd hosts are not aware of '%s' users with '%s' pool",
+			"all shadowd hosts are not aware of '%s' users within '%s' pool",
 			strings.Join(users, "', '"),
 			hashTablesPool,
 		)

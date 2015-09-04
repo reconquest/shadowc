@@ -21,7 +21,13 @@ type ShadowdUpstream struct {
 	hosts []*ShadowdHost
 }
 
-type HashTableNotFoundError error
+type HashTableNotFoundError struct {
+	error
+}
+
+type TokensListNotFoundError struct {
+	error
+}
 
 func NewShadowdHost(addr string, resource *http.Client) (*ShadowdHost, error) {
 	if strings.Contains(addr, "://") {
@@ -96,11 +102,11 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
-			return "", HashTableNotFoundError(
+			return "", HashTableNotFoundError{
 				fmt.Errorf(
 					"hash table for token '%s' not found", token,
 				),
-			)
+			}
 		}
 
 		return "", fmt.Errorf("error HTTP status: %s", response.Status)
@@ -113,6 +119,37 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 	defer response.Body.Close()
 
 	return strings.TrimRight(string(body), "\n"), nil
+}
+
+func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
+	response, err := shadowdHost.resource.Get(
+		"https://" + shadowdHost.addr + "/t/" +
+			strings.TrimSuffix(base, "/") + "/",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if response.StatusCode != 200 {
+		if response.StatusCode == 404 {
+			return nil, TokensListNotFoundError{
+				fmt.Errorf(
+					"no tokens from '%s' is found", base,
+				),
+			}
+		}
+
+		return nil, fmt.Errorf("error HTTP status: %s", response.Status)
+	}
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	defer response.Body.Close()
+
+	return strings.Split(string(body), "\n"), nil
 }
 
 func NewShadowdUpstream(

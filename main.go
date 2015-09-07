@@ -16,8 +16,8 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-    shadowc [options] [-C [-g=<args>...]] [-p <pool>] -s <addr>... -u <user>...
-    shadowc [options] [-C [-g=<args>...]]  -p <pool> -s <addr>... --all
+    shadowc [options] [-C [-g <args>]] [-p <pool>] -s <addr>... -u <user>...
+    shadowc [options] [-C [-g <args>]]  -p <pool>  -s <addr>... --all
 
     shadowc [options] [-p <pool>] -s <addr>... --update
 
@@ -28,10 +28,10 @@ Options:
     -C         Create user if it does not exists. User will be created with
                command 'useradd'. Additional parameters for 'useradd' can be
                passed using options '-g'.
-    -g <args>  Additional parameters for 'useradd' flag when creating user.
-               If you want to pass several options to 'useradd', specifiy flag
-               '-g' for each desired option. Like that: '-g -m -g -Gwheel'
-               [default: -m].
+      -g <args>  Additional parameters for 'useradd' flag when creating user.
+                 If you want to pass several options to 'useradd', specify
+				 one flag '-g' with quoted argument.
+				 Like that: '-g "-m -Gwheel"'. [default: -m].
     --all      Request all users from specified pull and write shadow entries
                for them.
     --update   Try to update shadow entries for all users from shadow file
@@ -53,7 +53,7 @@ func main() {
 		useUsersFromShadowFile = args["--update"].(bool)
 		requestUsersFromPool   = args["--all"].(bool)
 		canCreateUser          = args["-C"].(bool)
-		userAddArgs            = args["-g"].([]string)
+		userAddArgs            = args["-g"].(string)
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
@@ -90,7 +90,7 @@ func main() {
 		}
 
 		fmt.Printf(
-			"Fetched %d entries from pool '%s': %+v\n",
+			"Fetched %d entries from pool '%s': %s\n",
 			len(users),
 			hashTablesPool,
 			strings.Join(users, ", "),
@@ -125,6 +125,9 @@ func main() {
 		}
 
 		shadowFile, err = NewShadowFile(shadowFilepath)
+		if err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	fmt.Printf("Writing %d shadow entries...\n", len(*shadows))
@@ -300,9 +303,15 @@ func getAllUsersFromPool(
 	return tokens, nil
 }
 
-func createUser(userName string, userAddArgs []string) error {
-	userAddArgs = append(userAddArgs, userName)
-	createCommand := exec.Command("useradd", userAddArgs...)
+func createUser(userName string, userAddArgs string) error {
+	createCommand := exec.Command(
+		"sh", "-c", fmt.Sprintf(
+			"useradd %s %s",
+			userAddArgs,
+			userName,
+		),
+	)
+
 	output, err := createCommand.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf(

@@ -53,7 +53,7 @@ func (file *ShadowFile) GetUserIndex(userName string) (int, error) {
 }
 
 func (file *ShadowFile) Write(writer io.Writer) (int, error) {
-	return writer.Write([]byte(strings.Join(file.lines, "\n") + "\n"))
+	return io.WriteString(writer, strings.Join(file.lines, "\n")+"\n")
 }
 
 func (file *ShadowFile) GetPath() string {

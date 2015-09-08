@@ -24,8 +24,9 @@ hash entries anytime when you need change passwords.
 For running **shadowc** you can specify users which needs update of shadow
 entry via `-u <user>` argument, it is possible to specify more than one user.
 
-If you want to request all users from pool, you can use flag `--all`. Then,
-hash entries will be written for each user from specified via `-p` pool.
+If you want to request all users from the pool, you can use flag `--all`. Then,
+hash entries will be written for each user from the pool which is specified via
+`-p`.
 
 Flag `--update` can be used to request new hash entries for users with
 non-empty hash in /etc/shadow file. Users without password access or which are
@@ -41,8 +42,9 @@ this pool.
 
 **shadowc** can create users when needed. Flag **-C** should be added in that
 case, which will instruct **shadowc** to create user if it does not exist. By
-default, **shadowc** will create user via invokation of `useradd -m
-<username>`, but flags for `useradd` can be changed using `-g`.
+default, **shadowc** will create user via invocation of `useradd -m
+<username>`, but flags for `useradd` can be changed using `-g`. For example,
+sudo-user with home dir can be created by passing flag `-g "-m -Gwheel".
 
 ### Additional Options
 - `-c <cert>` — set specified certificate file path. (default:

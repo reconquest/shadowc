@@ -66,8 +66,9 @@ passwords, which were set on **shadowd** server while generating hash tables
 for that users.
 
 ```
-shadowc -s shadowd0.in.example.com:8888 -s shadowd1.in.example.com:8080
-\ -u john -u smith \ -c /data/shadowc/cert.pem
+shadowc -s shadowd0.in.example.com:8888 -s shadowd1.in.example.com:8080 \
+    -u john -u smith \
+    -c /data/shadowc/cert.pem
 ```
 
 Afterwards shadowc will overwrite the shadow file (`/etc/shadow`) and change

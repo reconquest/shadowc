@@ -116,7 +116,8 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer response.Body.Close()
+
+	response.Body.Close()
 
 	return strings.TrimRight(string(body), "\n"), nil
 }

@@ -53,7 +53,7 @@ sudo-user with home dir can be created by passing flag `-g "-m -Gwheel".
   `chroot` on your server and shadowc runned outside the `chroot`. (default:
   `/etc/shadow`)
 
-#### Example
+#### Examples
 
 Assume that, you have certificate file and two shadowd servers on
 `shadowd0.in.example.com:8080` and `shadowd1.in.example.com:8080`, certificate
@@ -75,3 +75,33 @@ shadowc -s shadowd0.in.example.com:8888 -s shadowd1.in.example.com:8080 \
 
 Afterwards shadowc will overwrite the shadow file (`/etc/shadow`) and change
 hash entries for John and Smith.
+
+##### Requesting all users from the pool
+
+**shadowc** can request all users from specified pool and it's more convient
+way to operate. Flag `--all` should be passed:
+
+```
+shadowc -s shadowd.in.example.com:8888 \
+    -p production
+    --all
+```
+
+In that case, if `production` pool contains 10 users, `/etc/passwd` will be
+updated for all of them. If there are no such users in `/etc/passwd`, nothing
+will be made for them.
+
+##### Creating users automatically
+
+**shadowc** can even create users by running `useradd` for you.
+Flag `-C` should be used:
+
+```
+shadowc -s shadowd.in.example.com:8888 \
+    -p production
+    --all
+    -C
+```
+
+All users from `production` pool will be created (if they are not exists) and
+shadow entry will be updated accordingly.

@@ -53,7 +53,7 @@ sudo-user with home dir can be created by passing flag `-g "-m -Gwheel"`.
   `chroot` on your server and shadowc runned outside the `chroot`. (default:
   `/etc/shadow`)
 
-#### Examples
+### Examples
 
 Assume that, you have certificate file and two shadowd servers on
 `shadowd0.in.example.com:8080` and `shadowd1.in.example.com:8080`, certificate

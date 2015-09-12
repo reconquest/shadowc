@@ -51,6 +51,10 @@ per user. Flag `-K` intended to request SSH keys from **shadowd*** server
 and add them to the `authorized_keys`. Use `-t` to overwrite file with
 new keys, which is more secure way of refreshing keys.
 
+**shadowc** has support of SRV-names, and, by default, if no `-s` specified,
+then **shadowc** will try to resolve SRV-record `_shadowd` and try to obtain
+info from resulting addresses.
+
 ### Additional Options
 - `-c <cert>` — set specified certificate file path. (default:
   `/etc/shadowc/cert.pem`)
@@ -147,3 +151,29 @@ shadowc -s shadowd.in.example.com:8888 \
 All users from `production` pool will be created (if necessary), shadowd
 entries will be updated, SSH keys will be requested and overwritten for that
 users.
+
+##### Using default SRV-record
+
+**shadowc** can resolve SRV-records, and, if no `-s` flags are specified, it will
+try to resolve `_shadowd` SRV-record and get **shadowd** adresses from resolve
+result.
+
+To make use of it, your DNS configuration should have:
+
+* default search domain, e.g. `in.example.com`;
+* CNAME `_shadowd.in.example.com` pointing to the shadowd SRV-record;
+* SRV-records like:
+
+  ```
+  _shadowd._tcp.in.example.com 60 IN SRV 0 50 443 shadowd-0.in.example.com
+  _shadowd._tcp.in.example.com 60 IN SRV 0 50 443 shadowd-1.in.example.com
+  ```
+
+If all DNS configured correctly, then, **shadowc** can be invoked without `-s` flag:
+
+```
+shadowc -p production -CKt --all
+```
+
+This is most consice call that will sync all login info (both password and SSH)
+from yours infrastructure **shadowd*** server.

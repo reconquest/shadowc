@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -22,16 +23,18 @@ It is capable of requesting users list from shadowd server and creating them,
 as well as updating theirs SSH keys (authorized_keys).
 
 Most common invocation is:
-    shadowc -KtC -s <shadowd-addr> -p <pool-name> --all
+    shadowc -KtC -p <pool-name> --all
 
     This call will request all users from the pool denoted by <pool-name>,
     create them if necessary, request new hash entries, write them into
     /etc/shadow, request SSH keys and overwrite authorized_keys file for each
     user.
 
+    Requests will be sent to addresses which resolves from SRV record _shadowd.
+
 Usage:
-    shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] -s <addr>... -u <user>...
-    shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  -s <addr>... --all
+    shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] [-s <addr>...] -u <user>...
+    shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  [-s <addr>...] --all
     shadowc [options] [-K [-t]] [-p <pool>] -s <addr>... --update
 
 Options:
@@ -46,6 +49,13 @@ Options:
         user's authorized_keys file.
          -t          Overwrite authorized_keys file instead of appending.
     -s <addr>        Use specified login distribution server address.
+                     There are several servers can be specified, then shadowc will
+                     try to request information from the next server is previous
+                     unavailable or do not have required data.
+                     Also, SRV name can be specified by using following syntax:
+                         _<service>._<proto>.<domain>   or
+                         _<service>.
+                     [default: _shadowd].
     -p <pool>        Use specified hash tables pool on servers.
     -u <user>        Set user which needs shadow entry.
     --all            Request all users from specified pull and write shadow entries
@@ -56,6 +66,8 @@ Options:
     -f <file>        Set shadow file path [default: /etc/shadow].
     -w <passwd>      Set passwd file path (for reading user home dir locations).
                      [default: /etc/passwd]
+    --no-srv         Do not try to find shadowd addresses prefixed by '_' in SRV
+                     records.
 `
 
 func main() {
@@ -74,6 +86,7 @@ func main() {
 		canUpdateSSHKeys       = args["-K"].(bool)
 		userAddArgs            = args["-g"].(string)
 		passwdFilePath         = args["-w"].(string)
+		noSRV                  = args["--no-srv"].(bool)
 
 		shouldOverwriteAuthorizedKeys = args["-t"].(bool)
 	)
@@ -91,6 +104,10 @@ func main() {
 	var poolName string
 	if args["-p"] != nil {
 		poolName = args["-p"].(string)
+	}
+
+	if noSRV == false {
+		addrs = tryToResolveSRV(addrs)
 	}
 
 	shadowdUpstream, err := NewShadowdUpstream(addrs, certificateFilepath)
@@ -573,4 +590,52 @@ func createUser(userName string, userAddArgs string) error {
 	}
 
 	return nil
+}
+
+func tryToResolveSRV(addrs []string) []string {
+	newAddrs := []string{}
+	for _, addr := range addrs {
+		if !strings.HasPrefix(addr, "_") {
+			newAddrs = append(newAddrs, addr)
+
+			continue
+		}
+
+		var err error
+		var srvRecords []*net.SRV
+
+		// _shadowd
+		// _shadowd._tcp.example.com
+		if strings.Count(addr, ".") == 0 {
+			_, srvRecords, err = net.LookupSRV("", "", addr)
+		} else if strings.Count(addr, ".") > 1 {
+			parts := strings.SplitN(addr, ".", 3)
+			_, srvRecords, err = net.LookupSRV(
+				strings.TrimLeft(parts[0], "_"),
+				strings.TrimLeft(parts[1], "_"),
+				parts[2],
+			)
+		} else {
+			continue
+		}
+
+		if err != nil {
+			log.Printf("can't resolve SRV record for '%s': %s", addr, err)
+
+			newAddrs = append(newAddrs, addr)
+		} else {
+			for _, srvRecord := range srvRecords {
+				newAddr := fmt.Sprintf(
+					"%s:%d",
+					strings.Trim(srvRecord.Target, "."), srvRecord.Port,
+				)
+
+				log.Printf("SRV record '%s' resolved into '%s'", addr, newAddr)
+
+				newAddrs = append(newAddrs, newAddr)
+			}
+		}
+	}
+
+	return newAddrs
 }

@@ -21,11 +21,7 @@ type ShadowdUpstream struct {
 	hosts []*ShadowdHost
 }
 
-type HashTableNotFoundError struct {
-	error
-}
-
-type TokensListNotFoundError struct {
+type NotFoundError struct {
 	error
 }
 
@@ -78,8 +74,8 @@ func (shadowdHost *ShadowdHost) GetShadow(
 
 	if hash == proofHash {
 		log.Printf(
-			"Warning, hash for token '%s' was recently requested; "+
-				"possible break in attempt.",
+			"warning, hash for token '%s' was recently requested; "+
+				"possible break-in attempt.",
 			token,
 		)
 	}
@@ -92,65 +88,57 @@ func (shadowdHost *ShadowdHost) GetShadow(
 	return shadow, nil
 }
 
+func (shadowdHost *ShadowdHost) GetSSHKeys(
+	pool string, user string,
+) (SSHKeys, error) {
+	var token string
+
+	if pool != "" {
+		token = pool + "/" + user
+	} else {
+		token = user
+	}
+
+	body, err := doGet(
+		shadowdHost.resource,
+		"https://"+shadowdHost.addr+"/ssh/"+token,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sshKeys := SSHKeys{}
+
+	for _, key := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
+		sshKeys = append(sshKeys, SSHKey(key))
+	}
+
+	return sshKeys, nil
+}
+
 func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
-	response, err := shadowdHost.resource.Get(
-		"https://" + shadowdHost.addr + "/t/" + token,
+	body, err := doGet(
+		shadowdHost.resource,
+		"https://"+shadowdHost.addr+"/t/"+token,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	if response.StatusCode != 200 {
-		if response.StatusCode == 404 {
-			return "", HashTableNotFoundError{
-				fmt.Errorf(
-					"hash table for token '%s' not found", token,
-				),
-			}
-		}
-
-		return "", fmt.Errorf("error HTTP status: %s", response.Status)
-	}
-
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return "", err
-	}
-
-	response.Body.Close()
-
-	return strings.TrimRight(string(body), "\n"), nil
+	return strings.TrimRight(body, "\n"), nil
 }
 
 func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
-	response, err := shadowdHost.resource.Get(
-		"https://" + shadowdHost.addr + "/t/" +
-			strings.TrimSuffix(base, "/") + "/",
+	body, err := doGet(
+		shadowdHost.resource,
+		"https://"+shadowdHost.addr+
+			"/t/"+strings.TrimSuffix(base, "/")+"/",
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	if response.StatusCode != 200 {
-		if response.StatusCode == 404 {
-			return nil, TokensListNotFoundError{
-				fmt.Errorf(
-					"no tokens from '%s' is found", base,
-				),
-			}
-		}
-
-		return nil, fmt.Errorf("error HTTP status: %s", response.Status)
-	}
-
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	defer response.Body.Close()
-
-	return strings.Split(string(body), "\n"), nil
+	return strings.Split(body, "\n"), nil
 }
 
 func NewShadowdUpstream(
@@ -213,4 +201,34 @@ func (upstream *ShadowdUpstream) GetAliveShadowdHosts() (
 	}
 
 	return hosts, nil
+}
+
+func readHTTPResponse(response *http.Response) (string, error) {
+	if response.StatusCode != 200 {
+		if response.StatusCode == 404 {
+			return "", NotFoundError{
+				fmt.Errorf("404 Not Found"),
+			}
+		}
+
+		return "", fmt.Errorf("error HTTP status: %s", response.Status)
+	}
+
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return "", err
+	}
+
+	response.Body.Close()
+
+	return string(body), nil
+}
+
+func doGet(client *http.Client, url string) (string, error) {
+	response, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+
+	return readHTTPResponse(response)
 }

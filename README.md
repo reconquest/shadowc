@@ -46,6 +46,11 @@ default, **shadowc** will create user via invocation of `useradd -m
 <username>`, but flags for `useradd` can be changed using `-g`. For example,
 sudo-user with home dir can be created by passing flag `-g "-m -Gwheel"`.
 
+**shadowc** can also refresh SSH keys, stored in the `authorized_keys` file
+per user. Flag `-K` intended to request SSH keys from **shadowd*** server
+and add them to the `authorized_keys`. Use `-t` to overwrite file with
+new keys, which is more secure way of refreshing keys.
+
 ### Additional Options
 - `-c <cert>` — set specified certificate file path. (default:
   `/etc/shadowc/cert.pem`)
@@ -124,3 +129,21 @@ Running in that way **shadowc** will obtain all users from `production` pool,
 create them if they are not exists in the system, create home directory for each
 user (`-m`) and put each user in the `wheel` group (`-Gwheel`). Then, shadow
 entries will be updated.
+
+##### Securely refreshing SSH keys
+
+**shadowc** can manage user's `authorized_keys` file by requesting SSH keys from
+**shadowd** server. By default, this behaviour is disabled, by it can be enabled
+by specifying option `-K`:
+
+```
+shadowc -s shadowd.in.example.com:8888 \
+    -p production
+    --all
+    -C
+    -Kt
+```
+
+All users from `production` pool will be created (if necessary), shadowd
+entries will be updated, SSH keys will be requested and overwritten for that
+users.

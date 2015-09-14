@@ -109,8 +109,18 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 
 	sshKeys := SSHKeys{}
 
-	for _, key := range strings.Split(strings.TrimRight(body, "\n"), "\n") {
-		sshKeys = append(sshKeys, SSHKey(key))
+	rawKeys := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	for keyIndex, rawKey := range rawKeys {
+		key, err := ReadSSHKey(rawKey)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error while parsing #%d key: %s",
+				keyIndex+1,
+				err,
+			)
+		}
+
+		sshKeys = append(sshKeys, key)
 	}
 
 	return sshKeys, nil

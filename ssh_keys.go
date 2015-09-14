@@ -2,13 +2,19 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
-	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
-type SSHKey string
-type SSHKeys []SSHKey
+type SSHKey struct {
+	Comment string
+	Raw     string
+}
+
+type SSHKeys []*SSHKey
 type AuthorizedKeys map[string]SSHKeys
 
 type AuthorizedKeysFile struct {
@@ -16,14 +22,23 @@ type AuthorizedKeysFile struct {
 	keys SSHKeys
 }
 
-func (key *SSHKey) GetComment() string {
-	parts := strings.Split(string(*key), " ")
-
-	if len(parts) < 3 {
-		return ""
-	} else {
-		return parts[2]
+func ReadSSHKey(key string) (*SSHKey, error) {
+	_, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
+	if err != nil {
+		return nil, fmt.Errorf(
+			"can't parse SSH key: %s",
+			err,
+		)
 	}
+
+	return &SSHKey{
+		Comment: comment,
+		Raw:     key,
+	}, nil
+}
+
+func (key *SSHKey) GetComment() string {
+	return key.Comment
 }
 
 func NewAuthorizedKeysFile(path string) *AuthorizedKeysFile {
@@ -43,7 +58,16 @@ func ReadAuthorizedKeysFile(path string) (*AuthorizedKeysFile, error) {
 	sshKeys := SSHKeys{}
 
 	for scanner.Scan() {
-		sshKeys = append(sshKeys, SSHKey(scanner.Text()))
+		key, err := ReadSSHKey(scanner.Text())
+		if err != nil {
+			return nil, fmt.Errorf(
+				"error parsing '%s' file: %s",
+				path,
+				err,
+			)
+		}
+
+		sshKeys = append(sshKeys, key)
 	}
 
 	return &AuthorizedKeysFile{
@@ -52,9 +76,9 @@ func ReadAuthorizedKeysFile(path string) (*AuthorizedKeysFile, error) {
 	}, nil
 }
 
-func (file *AuthorizedKeysFile) AddSSHKey(key SSHKey) bool {
+func (file *AuthorizedKeysFile) AddSSHKey(key *SSHKey) bool {
 	for _, existKey := range file.keys {
-		if existKey == key {
+		if existKey.Raw == key.Raw {
 			return false
 		}
 	}
@@ -68,7 +92,7 @@ func (file *AuthorizedKeysFile) Write(writer io.Writer) (int, error) {
 	totalWritten := 0
 
 	for _, key := range file.keys {
-		written, err := io.WriteString(writer, string(key)+"\n")
+		written, err := io.WriteString(writer, string(key.Raw)+"\n")
 		if err != nil {
 			return totalWritten, err
 		}

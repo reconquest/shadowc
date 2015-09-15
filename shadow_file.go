@@ -12,7 +12,7 @@ type ShadowFile struct {
 	lines []string
 }
 
-func NewShadowFile(path string) (*ShadowFile, error) {
+func ReadShadowFile(path string) (*ShadowFile, error) {
 	shadowEntries, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -15,15 +16,26 @@ import (
 const usage = `shadowc, client of login distribution service.
 
 Usage:
-    shadowc [options] [-p <pool>] -s <addr>... -u <user>...
-    shadowc [options] [-p <pool>] -s <addr>... --all
+    shadowc [options] [-C [-g <args>]] [-p <pool>] -s <addr>... -u <user>...
+    shadowc [options] [-C [-g <args>]]  -p <pool>  -s <addr>... --all
+
+    shadowc [options] [-p <pool>] -s <addr>... --update
 
 Options:
     -s <addr>  Use specified login distribution server address.
     -p <pool>  Use specified hash tables pool on servers.
     -u <user>  Set specified user which needs shadow entry.
-    --all      Try to update shadow entries for all users from shadow file which
-               already has passwords.
+    -C         Create user if it does not exists. User will be created with
+               command 'useradd'. Additional parameters for 'useradd' can be
+               passed using options '-g'.
+      -g <args>  Additional parameters for 'useradd' flag when creating user.
+                 If you want to pass several options to 'useradd', specify
+				 one flag '-g' with quoted argument.
+				 Like that: '-g "-m -Gwheel"'. [default: -m].
+    --all      Request all users from specified pull and write shadow entries
+               for them.
+    --update   Try to update shadow entries for all users from shadow file
+               which already has passwords.
     -c <cert>  Set specified certificate file path [default: /etc/shadowc/cert.pem].
     -f <file>  Set specified shadow file path [default: /etc/shadow].
 `
@@ -35,10 +47,13 @@ func main() {
 	}
 
 	var (
-		addrs               = args["-s"].([]string)
-		shadowFilepath      = args["-f"].(string)
-		certificateFilepath = args["-c"].(string)
-		allUsersUpdateMode  = args["--all"].(bool)
+		addrs                  = args["-s"].([]string)
+		shadowFilepath         = args["-f"].(string)
+		certificateFilepath    = args["-c"].(string)
+		useUsersFromShadowFile = args["--update"].(bool)
+		requestUsersFromPool   = args["--all"].(bool)
+		canCreateUser          = args["-C"].(bool)
+		userAddArgs            = args["-g"].(string)
 	)
 
 	certificateDirectory := filepath.Dir(certificateFilepath)
@@ -56,73 +71,96 @@ func main() {
 		hashTablesPool = args["-p"].(string)
 	}
 
-	var users []string
-	if allUsersUpdateMode {
-		users, err = getUsersWithPasswords(shadowFilepath)
-		if err != nil {
-			log.Fatal(err.Error())
-		}
-	} else {
-		users = args["-u"].([]string)
-	}
-
 	shadowdUpstream, err := NewShadowdUpstream(addrs, certificateFilepath)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
+	var users []string
+	switch {
+	case useUsersFromShadowFile:
+		users, err = getUsersWithPasswords(shadowFilepath)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+	case requestUsersFromPool:
+		users, err = getAllUsersFromPool(hashTablesPool, shadowdUpstream)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		fmt.Printf(
+			"Fetched %d entries from pool '%s': %s\n",
+			len(users),
+			hashTablesPool,
+			strings.Join(users, ", "),
+		)
+
+	default:
+		users = args["-u"].([]string)
+	}
+
 	shadows, err := getShadows(
-		users, shadowdUpstream, hashTablesPool, allUsersUpdateMode,
+		users, shadowdUpstream, hashTablesPool, useUsersFromShadowFile,
 	)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
+	shadowFile, err := NewShadowFile(shadowFilepath)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	if canCreateUser {
+		for _, user := range users {
+			_, err := shadowFile.GetUserIndex(user)
+			if err != nil {
+				fmt.Printf("Creating user '%s'...\n", user)
+				err := createUser(user, userAddArgs)
+				if err != nil {
+					log.Fatalln(err)
+				}
+			}
+		}
+
+		shadowFile, err = NewShadowFile(shadowFilepath)
+		if err != nil {
+			log.Fatalln(err)
+		}
+	}
+
 	fmt.Printf("Writing %d shadow entries...\n", len(*shadows))
 
-	err = writeShadows(shadows, shadowFilepath)
+	err = writeShadows(shadows, shadowFile)
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func writeShadows(shadows *Shadows, shadowFilepath string) error {
+func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 	// create temporary file in same directory for preventing 'cross-device
 	// link' error.
-	temporaryFile, err := ioutil.TempFile(path.Dir(shadowFilepath), "shadow")
+	temporaryFile, err := ioutil.TempFile(
+		path.Dir(shadowFile.GetPath()), "shadow",
+	)
+
 	if err != nil {
 		return err
 	}
 	defer temporaryFile.Close()
 
-	shadowEntries, err := ioutil.ReadFile(shadowFilepath)
-	if err != nil {
-		return err
-	}
-
-	lines := strings.Split(
-		strings.TrimRight(string(shadowEntries), "\n"),
-		"\n",
-	)
-
 	for _, shadow := range *shadows {
-		found := false
-		for lineIndex, line := range lines {
-			if strings.HasPrefix(line, shadow.User+":") {
-				lines[lineIndex] = fmt.Sprintf("%s", shadow)
-				found = true
-				break
-			}
-		}
-
-		if !found {
+		err := shadowFile.SetShadow(shadow)
+		if err != nil {
 			return fmt.Errorf(
-				"can't found user '%s' in the shadow file", shadow.User,
+				"error while updating shadow for '%s': %s", shadow.User,
+				err,
 			)
 		}
 	}
 
-	_, err = temporaryFile.WriteString(strings.Join(lines, "\n") + "\n")
+	_, err = shadowFile.Write(temporaryFile)
 	if err != nil {
 		return err
 	}
@@ -132,14 +170,14 @@ func writeShadows(shadows *Shadows, shadowFilepath string) error {
 		return err
 	}
 
-	err = os.Rename(temporaryFile.Name(), shadowFilepath)
+	err = os.Rename(temporaryFile.Name(), shadowFile.GetPath())
 
 	return err
 }
 
 func getShadows(
 	users []string, shadowdUpstream *ShadowdUpstream, hashTablesPool string,
-	allUsersUpdateMode bool,
+	useUsersFromShadowFile bool,
 ) (*Shadows, error) {
 	shadows := Shadows{}
 	for _, user := range users {
@@ -154,7 +192,7 @@ func getShadows(
 			if err != nil {
 				switch err.(type) {
 				case HashTableNotFoundError:
-					if !allUsersUpdateMode {
+					if !useUsersFromShadowFile {
 						return nil, err
 					}
 
@@ -163,7 +201,7 @@ func getShadows(
 				}
 
 				log.Printf(
-					"shadowd host '%s' returned error: '%s'",
+					"shadowd host '%s' returned error: %s",
 					shadowdHost.GetAddr(), err.Error(),
 				)
 
@@ -175,7 +213,7 @@ func getShadows(
 			break
 		}
 
-		if allUsersUpdateMode && !shadowFound {
+		if useUsersFromShadowFile && !shadowFound {
 			log.Printf(
 				"all shadowd hosts are not aware of user '%s' within '%s' pool\n",
 				user, hashTablesPool,
@@ -183,7 +221,7 @@ func getShadows(
 		}
 	}
 
-	if allUsersUpdateMode && len(shadows) == 0 {
+	if useUsersFromShadowFile && len(shadows) == 0 {
 		return nil, fmt.Errorf(
 			"all shadowd hosts are not aware of '%s' users within '%s' pool",
 			strings.Join(users, "', '"),
@@ -221,5 +259,66 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 		}
 	}
 
+	if len(users) == 0 {
+		return nil, fmt.Errorf(
+			"shadow file is empty",
+		)
+	}
+
 	return users, nil
+}
+
+func getAllUsersFromPool(
+	poolName string, shadowdUpstream *ShadowdUpstream,
+) ([]string, error) {
+	shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	var tokens []string
+	for _, shadowdHost := range shadowdHosts {
+		tokens, err = shadowdHost.GetTokens(poolName)
+		if err != nil {
+			switch err.(type) {
+			case TokensListNotFoundError:
+				log.Printf(
+					"shadowd host '%s' returned error: %s",
+					shadowdHost.GetAddr(), err.Error(),
+				)
+				continue
+			default:
+				return nil, err
+			}
+		}
+	}
+
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf(
+			"no tokens found under '%s' in all upstream",
+			poolName,
+		)
+	}
+
+	return tokens, nil
+}
+
+func createUser(userName string, userAddArgs string) error {
+	createCommand := exec.Command(
+		"sh", "-c", fmt.Sprintf(
+			"useradd %s %s",
+			userAddArgs,
+			userName,
+		),
+	)
+
+	output, err := createCommand.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"useradd exited with error: %s",
+			output,
+		)
+	}
+
+	return nil
 }

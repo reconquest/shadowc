@@ -71,7 +71,7 @@ Options:
 `
 
 func main() {
-	args, err := docopt.Parse(usage, nil, true, "shadowc 1.1", false)
+	args, err := docopt.Parse(usage, nil, true, "shadowc 2.0", false)
 	if err != nil {
 		panic(err)
 	}

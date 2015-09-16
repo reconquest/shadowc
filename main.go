@@ -372,6 +372,14 @@ func writeAuthorizedKeysFile(
 		return 0, err
 	}
 
+	output, err := exec.Command("chown", user+":", temporaryFile.Name()).CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf(
+			"error while chowning '%s': %s (%s)",
+			temporaryFile.Name(), output, err,
+		)
+	}
+
 	err = os.Rename(temporaryFile.Name(), path)
 
 	return addedKeysCount, err

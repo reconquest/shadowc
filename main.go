@@ -311,12 +311,9 @@ func writeAuthorizedKeysFile(
 			)
 		}
 
-		output, err := exec.Command("chown", user+":", dir).CombinedOutput()
+		err := changeOwner(user, dir)
 		if err != nil {
-			return 0, fmt.Errorf(
-				"error while chowning '%s': %s (%s)",
-				dir, output, err,
-			)
+			return 0, err
 		}
 	}
 
@@ -372,12 +369,9 @@ func writeAuthorizedKeysFile(
 		return 0, err
 	}
 
-	output, err := exec.Command("chown", user+":", temporaryFile.Name()).CombinedOutput()
+	err = changeOwner(user, temporaryFile.Name())
 	if err != nil {
-		return 0, fmt.Errorf(
-			"error while chowning '%s': %s (%s)",
-			temporaryFile.Name(), output, err,
-		)
+		return 0, err
 	}
 
 	err = os.Rename(temporaryFile.Name(), path)
@@ -646,4 +640,15 @@ func tryToResolveSRV(addrs []string) []string {
 	}
 
 	return newAddrs
+}
+
+func changeOwner(user, path string) error {
+	output, err := exec.Command("chown", user+":", path).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"error while chowning '%s': %s (%s)",
+			path, output, err,
+		)
+	}
+	return nil
 }

@@ -2,25 +2,29 @@
 
 set -e -u
 
-if [ $# -eq 0 ]; then
-    echo -e "Usage:\n$0 <version>"
-    exit 1
-fi
-
-VERSION="$1"
 PKGDIR="shadowc-deb"
 SRCDIR="src"
-
-sed -i 's/\$VERSION\$/'$VERSION'/g' $PKGDIR/DEBIAN/control
 
 mkdir -p $PKGDIR/etc/shadowc
 mkdir -p $PKGDIR/usr/bin
 
-git clone https://github.com/reconquest/shadowc $SRCDIR
+if [ -d $SRCDIR ]; then
+	rm -rf $SRCDIR
+fi
+git clone ssh://git@git.rn/devops/shadowc.git $SRCDIR
+
+pushd $SRCDIR
+count=$(git rev-list HEAD| wc -l)
+commit=$(git rev-parse --short HEAD)
+VERSION="${count}.$commit"
+popd
+
+sed -i 's/\$VERSION\$/'$VERSION'/g' $PKGDIR/DEBIAN/control
 
 # dependencies
+export GOPATH=`pwd`
 go get github.com/docopt/docopt-go
-
+go get golang.org/x/crypto/ssh
 (
     cd $SRCDIR
     go build -o shadowc

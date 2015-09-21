@@ -2,18 +2,20 @@
 
 set -e -u
 
+SRCURL="git.rn/devops/shadowc.git"
 PKGDIR="shadowc-deb"
-SRCDIR="src"
+SRCROOT="src"
+SRCDIR=${SRCROOT}/${SRCURL}
 
 mkdir -p $PKGDIR/etc/shadowc
 mkdir -p $PKGDIR/usr/bin
+rm -rf $SRCROOT
 
-if [ -d $SRCDIR ]; then
-	rm -rf $SRCDIR
-fi
-git clone ssh://git@git.rn/devops/shadowc.git $SRCDIR
-
+export GOPATH=`pwd`
+go get $SRCURL
 pushd $SRCDIR
+go build -o shadowc
+
 count=$(git rev-list HEAD| wc -l)
 commit=$(git rev-parse --short HEAD)
 VERSION="${count}.$commit"
@@ -21,16 +23,7 @@ popd
 
 sed -i 's/\$VERSION\$/'$VERSION'/g' $PKGDIR/DEBIAN/control
 
-# dependencies
-export GOPATH=`pwd`
-go get github.com/docopt/docopt-go
-go get golang.org/x/crypto/ssh
-(
-    cd $SRCDIR
-    go build -o shadowc
-)
-
-cp -f $SRCDIR/shadowc $PKGDIR/usr/bin/
+cp -f bin/shadowc.git $PKGDIR/usr/bin/shadowc
 
 dpkg -b $PKGDIR shadowc-${VERSION}_amd64.deb
 

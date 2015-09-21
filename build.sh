@@ -2,31 +2,28 @@
 
 set -e -u
 
-if [ $# -eq 0 ]; then
-    echo -e "Usage:\n$0 <version>"
-    exit 1
-fi
-
-VERSION="$1"
+SRCURL="git.rn/devops/shadowc.git"
 PKGDIR="shadowc-deb"
-SRCDIR="src"
-
-sed -i 's/\$VERSION\$/'$VERSION'/g' $PKGDIR/DEBIAN/control
+SRCROOT="src"
+SRCDIR=${SRCROOT}/${SRCURL}
 
 mkdir -p $PKGDIR/etc/shadowc
 mkdir -p $PKGDIR/usr/bin
+rm -rf $SRCROOT
 
-git clone https://github.com/reconquest/shadowc $SRCDIR
+export GOPATH=`pwd`
+go get $SRCURL
+pushd $SRCDIR
+go build -o shadowc
 
-# dependencies
-go get github.com/docopt/docopt-go
+count=$(git rev-list HEAD| wc -l)
+commit=$(git rev-parse --short HEAD)
+VERSION="${count}.$commit"
+popd
 
-(
-    cd $SRCDIR
-    go build -o shadowc
-)
+sed -i 's/\$VERSION\$/'$VERSION'/g' $PKGDIR/DEBIAN/control
 
-cp -f $SRCDIR/shadowc $PKGDIR/usr/bin/
+cp -f bin/shadowc.git $PKGDIR/usr/bin/shadowc
 
 dpkg -b $PKGDIR shadowc-${VERSION}_amd64.deb
 

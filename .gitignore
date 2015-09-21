@@ -1,0 +1,5 @@
+*.deb
+src/
+pkg/
+bin/
+shadowc-deb/usr/bin/shadowc

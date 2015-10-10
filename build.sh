@@ -2,7 +2,7 @@
 
 set -e -u
 
-SRCURL="git.rn/devops/shadowc.git"
+SRCURL="github.com/reconquest/shadowc"
 PKGDIR="shadowc-deb"
 SRCROOT="src"
 SRCDIR=${SRCROOT}/${SRCURL}

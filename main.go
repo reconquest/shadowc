@@ -14,6 +14,8 @@ import (
 	"github.com/docopt/docopt-go"
 )
 
+var version = "2.0"
+
 const usage = `shadowc, client of login distribution service.
 
 shadowc will request shadow hash entries from specified server and update
@@ -36,6 +38,8 @@ Usage:
     shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] [-s <addr>...] -u <user>...
     shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  [-s <addr>...] --all
     shadowc [options] [-K [-t]] [-p <pool>] -s <addr>... --update
+    shadowc -v | --version
+    shadowc -h | --help
 
 Options:
     -C  Create user if it does not exists. User will be created with
@@ -68,10 +72,12 @@ Options:
                      [default: /etc/passwd]
     --no-srv         Do not try to find shadowd addresses prefixed by '_' in SRV
                      records.
+    -h --help        Show this screen.
+    -v --version     Show version.
 `
 
 func main() {
-	args, err := docopt.Parse(usage, nil, true, "shadowc 2.0", false)
+	args, err := docopt.Parse(usage, nil, true, "shadowc "+version, false)
 	if err != nil {
 		panic(err)
 	}

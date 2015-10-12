@@ -194,7 +194,7 @@ func main() {
 		fmt.Println("Shadow information updated")
 	}
 
-	if canUpdateSSHKeys && len(*shadows) > 0 {
+	if canUpdateSSHKeys {
 		fmt.Printf("Updating %d SSH keys...\n", len(authorizedKeys))
 
 		addedKeysTotal := 0

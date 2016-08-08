@@ -5,8 +5,6 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
-
-	"github.com/seletskiy/hierr"
 )
 
 type ShadowFile struct {
@@ -17,9 +15,7 @@ type ShadowFile struct {
 func ReadShadowFile(path string) (*ShadowFile, error) {
 	shadowEntries, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, hierr.Errorf(
-			err, "can't read file %s", path,
-		)
+		return nil, err
 	}
 
 	lines := strings.Split(
@@ -34,25 +30,25 @@ func ReadShadowFile(path string) (*ShadowFile, error) {
 }
 
 func (file *ShadowFile) SetShadow(shadow *Shadow) error {
-	userIndex, err := file.GetUserIndex(shadow.User)
+	index, err := file.GetUserIndex(shadow.Username)
 	if err != nil {
 		return err
 	}
 
-	file.lines[userIndex] = fmt.Sprintf("%s", shadow)
+	file.lines[index] = fmt.Sprintf("%s", shadow)
 
 	return nil
 }
 
 func (file *ShadowFile) GetUserIndex(userName string) (int, error) {
-	for lineIndex, line := range file.lines {
+	for index, line := range file.lines {
 		if strings.HasPrefix(line, userName+":") {
-			return lineIndex, nil
+			return index, nil
 		}
 	}
 
 	return 0, fmt.Errorf(
-		"user '%s' is not found in shadow file '%s'", userName, file.path,
+		"user %s is not found in shadow file %s", userName, file.path,
 	)
 }
 

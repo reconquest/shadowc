@@ -5,6 +5,8 @@ import (
 	"io"
 	"io/ioutil"
 	"strings"
+
+	"github.com/seletskiy/hierr"
 )
 
 type ShadowFile struct {
@@ -15,7 +17,9 @@ type ShadowFile struct {
 func ReadShadowFile(path string) (*ShadowFile, error) {
 	shadowEntries, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't read file %s", path,
+		)
 	}
 
 	lines := strings.Split(

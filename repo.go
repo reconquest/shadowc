@@ -4,11 +4,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/seletskiy/hierr"
 )
 
 type ShadowdHost struct {
@@ -64,17 +67,21 @@ func (shadowdHost *ShadowdHost) GetShadow(
 
 	hash, err := shadowdHost.getHash(token)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't get shadow hash for %s", token,
+		)
 	}
 
 	proofHash, err := shadowdHost.getHash(token)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't get proofing shadow hash for %s", token,
+		)
 	}
 
 	if hash == proofHash {
 		log.Printf(
-			"warning, hash for token '%s' was recently requested; "+
+			"Warning! Hash for token '%s' was recently requested; "+
 				"possible break-in attempt.",
 			token,
 		)
@@ -104,7 +111,9 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 		"https://"+shadowdHost.addr+"/ssh/"+token,
 	)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "request to %s crashed", shadowdHost.addr,
+		)
 	}
 
 	sshKeys := SSHKeys{}
@@ -113,10 +122,8 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 	for keyIndex, rawKey := range rawKeys {
 		key, err := ReadSSHKey(rawKey)
 		if err != nil {
-			return nil, fmt.Errorf(
-				"error while parsing #%d key: %s",
-				keyIndex+1,
-				err,
+			return nil, hierr.Errorf(
+				err, "error while parsing #%d key", keyIndex+1,
 			)
 		}
 
@@ -132,7 +139,9 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 		"https://"+shadowdHost.addr+"/t/"+token,
 	)
 	if err != nil {
-		return "", err
+		return "", hierr.Errorf(
+			err, "request to %s crashed", shadowdHost.addr,
+		)
 	}
 
 	return strings.TrimRight(body, "\n"), nil
@@ -145,7 +154,9 @@ func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
 			"/t/"+strings.TrimSuffix(base, "/")+"/",
 	)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "request to %s crashed", shadowdHost.addr,
+		)
 	}
 
 	return strings.Split(body, "\n"), nil
@@ -156,7 +167,9 @@ func NewShadowdUpstream(
 ) (*ShadowdUpstream, error) {
 	pemData, err := ioutil.ReadFile(certificateFilepath)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't read certificate file %s", certificateFilepath,
+		)
 	}
 
 	pemBlock, _ := pem.Decode(pemData)
@@ -169,7 +182,9 @@ func NewShadowdUpstream(
 
 	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't parse certificate",
+		)
 	}
 
 	certsPool := x509.NewCertPool()
@@ -187,7 +202,9 @@ func NewShadowdUpstream(
 	for _, addr := range addrs {
 		shadowdHost, err := NewShadowdHost(addr, resource)
 		if err != nil {
-			return nil, err
+			return nil, hierr.Errorf(
+				err, "can't initialize shadowd client for '%s'", addr,
+			)
 		}
 
 		upstream.hosts = append(upstream.hosts, shadowdHost)
@@ -207,7 +224,7 @@ func (upstream *ShadowdUpstream) GetAliveShadowdHosts() (
 	}
 
 	if len(hosts) < 0 {
-		return nil, fmt.Errorf("no living shadowd hosts")
+		return nil, errors.New("no living shadowd hosts")
 	}
 
 	return hosts, nil
@@ -217,19 +234,19 @@ func readHTTPResponse(response *http.Response) (string, error) {
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
 			return "", NotFoundError{
-				fmt.Errorf("404 Not Found"),
+				errors.New("404 Not Found"),
 			}
 		}
 
-		return "", fmt.Errorf("error HTTP status: %s", response.Status)
+		return "", fmt.Errorf("unexpected status %s", response.Status)
 	}
 
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return "", err
+		return "", hierr.Errorf(
+			err, "can't read response body",
+		)
 	}
-
-	response.Body.Close()
 
 	return string(body), nil
 }

@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/seletskiy/hierr"
 )
 
 func getUsersHomeDirs(passwdPath string) (map[string]string, error) {
 	file, err := os.Open(passwdPath)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't open passwd file at %s", passwdPath,
+		)
 	}
 
 	scanner := bufio.NewScanner(file)

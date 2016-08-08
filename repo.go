@@ -239,6 +239,8 @@ func (upstream *ShadowdUpstream) GetAliveShadowdHosts() (
 }
 
 func readHTTPResponse(response *http.Response) (string, error) {
+	debugf("%s", response.Status)
+
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
 			return "", NotFoundError{
@@ -256,10 +258,14 @@ func readHTTPResponse(response *http.Response) (string, error) {
 		)
 	}
 
+	tracef("body: %s", body)
+
 	return string(body), nil
 }
 
 func doGet(client *http.Client, url string) (string, error) {
+	debugf("GET %s", url)
+
 	response, err := client.Get(url)
 	if err != nil {
 		return "", err

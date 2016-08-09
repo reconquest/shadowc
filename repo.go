@@ -121,7 +121,7 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 		token = username
 	}
 
-	body, err := doGet(
+	body, err := doGET(
 		shadowdHost.resource,
 		"https://"+shadowdHost.address+"/ssh/"+token,
 	)
@@ -147,7 +147,7 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 }
 
 func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
-	body, err := doGet(
+	body, err := doGET(
 		shadowdHost.resource,
 		"https://"+shadowdHost.address+"/t/"+token,
 	)
@@ -159,9 +159,32 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 }
 
 func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
-	body, err := doGet(
+	body, err := doGET(
 		shadowdHost.resource,
 		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(base, "/")+"/",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return strings.Split(body, "\n"), nil
+}
+
+func (shadowdHost *ShadowdHost) GetPasswordChangeSalts(
+	pool, username string,
+) ([]string, error) {
+	var token string
+
+	if pool != "" {
+		token = pool + "/" + username
+	} else {
+		token = username
+	}
+
+	body, err := doPUT(
+		shadowdHost.resource,
+		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(token, "/"),
+		nil,
 	)
 	if err != nil {
 		return nil, err
@@ -263,10 +286,26 @@ func readHTTPResponse(response *http.Response) (string, error) {
 	return string(body), nil
 }
 
-func doGet(client *http.Client, url string) (string, error) {
+func doGET(client *http.Client, url string) (string, error) {
 	debugf("GET %s", url)
 
 	response, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+
+	return readHTTPResponse(response)
+}
+
+func doPUT(client *http.Client, url string) (string, error) {
+	debugf("PUT %s", url)
+
+	request, err := http.NewRequest("PUT", url, payload)
+	if err != nil {
+		return "", err
+	}
+
+	response, err := client.Do(request)
 	if err != nil {
 		return "", err
 	}

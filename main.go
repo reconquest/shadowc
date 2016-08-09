@@ -110,25 +110,8 @@ func main() {
 		logger.SetLevel(lorg.LevelTrace)
 	}
 
-	var (
-		addresses              = args["--server"].([]string)
-		shadowFilepath         = args["--shadow"].(string)
-		certificateFilepath    = args["--cert"].(string)
-		useUsersFromShadowFile = args["--update"].(bool)
-		useUsersFromRemotePool = args["--all"].(bool)
-		//changePassword         = args["--password"].(bool)
-		shouldCreateUser    = args["--create"].(bool)
-		shouldUpdateSSHKeys = args["--keys"].(bool)
-		useraddArgs         = args["--useradd"].(string)
-		passwdFilePath      = args["--passwd"].(string)
-		shouldResolveSRV    = !args["--no-srv"].(bool)
-		pool, _             = args["--pool"].(string)
-
-		shouldOverwriteAuthorizedKeys = args["--overwrite-keys"].(bool)
-	)
-
-	certificateDirectory := filepath.Dir(certificateFilepath)
-	if _, err := os.Stat(certificateDirectory + "/key.pem"); err == nil {
+	_, err := os.Stat(filepath.Dir(args["--cert"].(string)) + "/key.pem")
+	if err == nil {
 		fatalf(
 			"Key file SHOULD NOT be located on the client machine and " +
 				"SHOULD NOT leave shadowd server. " +
@@ -137,16 +120,56 @@ func main() {
 		)
 	}
 
-	if shouldResolveSRV {
+	addresses := args["--server"].([]string)
+	if !args["--no-srv"].(bool) {
 		addresses = tryToResolveSRV(addresses)
 	}
 
-	shadowdUpstream, err := NewShadowdUpstream(addresses, certificateFilepath)
+	upstream, err := NewShadowdUpstream(addresses, args["--cert"].(string))
 	if err != nil {
-		fatalh(
-			err, "can't initialize shadowd client",
-		)
+		fatalh(err, "can't initialize shadowd client")
 	}
+
+	switch {
+	case args["--password"].(bool):
+		err = handleChangePassword(upstream, args)
+
+	default:
+		err = handlePull(upstream, args)
+	}
+
+	if err != nil {
+		fatalln(err)
+	}
+}
+
+func handleChangePassword(
+	upstream *ShadowdUpstream, args map[string]interface{},
+) error {
+	var (
+		usernames = args["--user"].([]string)
+		pool, _   = args["--pool"].(string)
+	)
+
+	return nil
+}
+
+func handlePull(
+	upstream *ShadowdUpstream, args map[string]interface{},
+) error {
+	var (
+		shadowFilepath         = args["--shadow"].(string)
+		useUsersFromShadowFile = args["--update"].(bool)
+		useUsersFromRemotePool = args["--all"].(bool)
+		shouldCreateUser       = args["--create"].(bool)
+		shouldUpdateSSHKeys    = args["--keys"].(bool)
+		useraddArgs            = args["--useradd"].(string)
+		passwdFilePath         = args["--passwd"].(string)
+		shouldResolveSRV       = !args["--no-srv"].(bool)
+		pool, _                = args["--pool"].(string)
+
+		shouldOverwriteAuthorizedKeys = args["--overwrite-keys"].(bool)
+	)
 
 	var usernames []string
 	switch {
@@ -156,6 +179,7 @@ func main() {
 			shadowFilepath,
 		)
 
+		var err error
 		usernames, err = getUsersWithPasswords(shadowFilepath)
 		if err != nil {
 			fatalh(
@@ -169,7 +193,8 @@ func main() {
 			pool,
 		)
 
-		usernames, err = getAllUsersFromPool(pool, shadowdUpstream)
+		var err error
+		usernames, err = getAllUsersFromPool(pool, upstream)
 		if err != nil {
 			fatalh(
 				err, "can't retrieve users within pool %s", pool,
@@ -186,7 +211,7 @@ func main() {
 	)
 
 	shadows, err := getShadows(
-		usernames, shadowdUpstream, pool, useUsersFromShadowFile,
+		usernames, upstream, pool, useUsersFromShadowFile,
 	)
 	if err != nil {
 		fatalh(err, "can't retrieve shadow entries")
@@ -198,7 +223,7 @@ func main() {
 	)
 
 	authorizedKeys, err := getAuthorizedKeys(
-		usernames, shadowdUpstream, pool,
+		usernames, upstream, pool,
 	)
 	if err != nil {
 		fatalh(
@@ -272,6 +297,61 @@ func main() {
 			written, len(authorizedKeys)-written,
 		)
 	}
+
+	return
+}
+
+func getPasswordChangeSalts(
+	upstream *ShadowdUpstream, pool, user string,
+) ([]string, error) {
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	shadowFound := false
+	for _, shadowdHost := range shadowdHosts {
+		shadow, err := shadowdHost.GetPasswordChangeSalts(pool, username)
+		if err != nil {
+			switch err.(type) {
+			case NotFoundError:
+				warningf(
+					"[%s] is not aware of %s",
+					shadowdHost.GetAddr(), user{username, pool},
+				)
+
+			default:
+				shadowdHost.SetIsAlive(false)
+
+				errorh(
+					err,
+					"[%s] has gone away", shadowdHost.GetAddr(),
+				)
+			}
+
+			continue
+		}
+
+		shadowFound = true
+		shadows = append(shadows, shadow)
+		break
+	}
+
+	if useUsersFromShadowFile && !shadowFound && len(shadowdHosts) > 1 {
+		return &shadows, fmt.Errorf(
+			"all shadowd servers are not aware of %s",
+			user{username, pool},
+		)
+	}
+
+	if useUsersFromShadowFile && len(shadows) == 0 {
+		return nil, fmt.Errorf(
+			"no information available for %s in all shadowd servers",
+			users{usernames, pool},
+		)
+	}
+
+	return &shadows, nil
 }
 
 func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
@@ -314,7 +394,8 @@ func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 	err = os.Rename(temporaryFile.Name(), shadowFile.GetPath())
 	if err != nil {
 		return hierr.Errorf(
-			err, "can't rename temporary file (%s) to shadow file (%s)",
+			err,
+			"can't rename temporary file (%s) to shadow file (%s)",
 			temporaryFile.Name(), shadowFile.GetPath(),
 		)
 	}
@@ -461,12 +542,12 @@ func writeAuthorizedKeysFile(
 }
 
 func getShadows(
-	usernames []string, shadowdUpstream *ShadowdUpstream, pool string,
+	usernames []string, upstream *ShadowdUpstream, pool string,
 	useUsersFromShadowFile bool,
 ) (*Shadows, error) {
 	shadows := Shadows{}
 	for _, username := range usernames {
-		shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+		shadowdHosts, err := upstream.GetAliveShadowdHosts()
 		if err != nil {
 			return nil, err
 		}
@@ -517,12 +598,12 @@ func getShadows(
 }
 
 func getAuthorizedKeys(
-	usernames []string, shadowdUpstream *ShadowdUpstream, pool string,
+	usernames []string, upstream *ShadowdUpstream, pool string,
 ) (AuthorizedKeys, error) {
 	keys := make(AuthorizedKeys)
 
 	for _, username := range usernames {
-		shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+		shadowdHosts, err := upstream.GetAliveShadowdHosts()
 		if err != nil {
 			return nil, err
 		}
@@ -603,9 +684,9 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 }
 
 func getAllUsersFromPool(
-	pool string, shadowdUpstream *ShadowdUpstream,
+	pool string, upstream *ShadowdUpstream,
 ) ([]string, error) {
-	shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
 	if err != nil {
 		return nil, err
 	}
@@ -641,14 +722,12 @@ func getAllUsersFromPool(
 	return tokens, nil
 }
 
-func createUser(userName string, useraddArgs string) error {
-	_, _, err := executil.Run(exec.Command(
-		"sh", "-c", fmt.Sprintf(
-			"useradd %s %s",
-			useraddArgs,
-			userName,
+func createUser(name, args string) error {
+	_, _, err := executil.Run(
+		exec.Command(
+			"sh", "-c", fmt.Sprintf("useradd %s %s", args, name),
 		),
-	))
+	)
 	return err
 }
 

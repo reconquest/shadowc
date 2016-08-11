@@ -153,6 +153,10 @@ func handleChangePassword(
 		pool, _  = args["--pool"].(string)
 	)
 
+	if username == "" {
+		return errors.New("username can't be empty")
+	}
+
 	oldpassword, err := getPassword("Password: ")
 	if err != nil {
 		return hierr.Errorf(
@@ -176,6 +180,10 @@ func handleChangePassword(
 
 	if proofPassword != password {
 		return errors.New("specified passwords do not match")
+	}
+
+	if password == "" {
+		return errors.New("password can't be empty")
 	}
 
 	infof("retrieving shadow salts")
@@ -257,6 +265,11 @@ func handlePull(
 
 	default:
 		usernames = args["--user"].([]string)
+		for _, username := range usernames {
+			if username == "" {
+				return errors.New("username can't be empty")
+			}
+		}
 	}
 
 	infof(

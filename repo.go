@@ -300,6 +300,11 @@ func readHTTPResponse(response *http.Response) (string, error) {
 				errors.New("404 Not Found"),
 			}
 		}
+		if response.StatusCode == 204 {
+			return "", NotFoundError{
+				errors.New("204 No Content"),
+			}
+		}
 
 		return "", fmt.Errorf("unexpected status %s", response.Status)
 	}

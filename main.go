@@ -147,9 +147,62 @@ func handleChangePassword(
 	upstream *ShadowdUpstream, args map[string]interface{},
 ) error {
 	var (
-		usernames = args["--user"].([]string)
-		pool, _   = args["--pool"].(string)
+		username = args["--user"].([]string)[0]
+		pool, _  = args["--pool"].(string)
 	)
+
+	oldpassword, err := getPassword("Password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for password",
+		)
+	}
+
+	password, err := getPassword("New password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for new password",
+		)
+	}
+
+	proofPassword, err := getPassword("Repeat new password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for repeat new password",
+		)
+	}
+
+	if proofPassword != password {
+		return errors.New("specified passwords do not match")
+	}
+
+	infof("retrieving shadow salts")
+
+	salts, err := getPasswordChangeSalts(upstream, pool, username)
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't retrieve salts for changing password",
+		)
+	}
+
+	infof(
+		"generating proof shadows using " +
+			"specified password and retrieved salts",
+	)
+
+	shadows := []string{}
+	for _, salt := range salts {
+		shadows = append(shadows, crypt(oldpassword, salt))
+	}
+
+	infof("requesting hash table generating with new password")
+
+	err = changePassword(upstream, pool, username, shadows, password)
+	if err != nil {
+		return err
+	}
+
+	infof("hash table for %s successfully generated", user{username, pool})
 
 	return nil
 }
@@ -165,7 +218,6 @@ func handlePull(
 		shouldUpdateSSHKeys    = args["--keys"].(bool)
 		useraddArgs            = args["--useradd"].(string)
 		passwdFilePath         = args["--passwd"].(string)
-		shouldResolveSRV       = !args["--no-srv"].(bool)
 		pool, _                = args["--pool"].(string)
 
 		shouldOverwriteAuthorizedKeys = args["--overwrite-keys"].(bool)
@@ -182,7 +234,7 @@ func handlePull(
 		var err error
 		usernames, err = getUsersWithPasswords(shadowFilepath)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't extract users from shadow file %s", shadowFilepath,
 			)
 		}
@@ -196,7 +248,7 @@ func handlePull(
 		var err error
 		usernames, err = getAllUsersFromPool(pool, upstream)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't retrieve users within pool %s", pool,
 			)
 		}
@@ -214,7 +266,7 @@ func handlePull(
 		usernames, upstream, pool, useUsersFromShadowFile,
 	)
 	if err != nil {
-		fatalh(err, "can't retrieve shadow entries")
+		return hierr.Errorf(err, "can't retrieve shadow entries")
 	}
 
 	infof(
@@ -226,7 +278,7 @@ func handlePull(
 		usernames, upstream, pool,
 	)
 	if err != nil {
-		fatalh(
+		return hierr.Errorf(
 			err, "can't retrieve authorized keys for %s",
 			users{usernames, pool},
 		)
@@ -237,7 +289,7 @@ func handlePull(
 
 		shadowFile, err := ReadShadowFile(shadowFilepath)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't read shadow file %s", shadowFilepath,
 			)
 		}
@@ -249,7 +301,7 @@ func handlePull(
 
 				err := createUser(shadow.Username, useraddArgs)
 				if err != nil {
-					fatalh(
+					return hierr.Errorf(
 						err, "can't create user %s", shadow.Username,
 					)
 				}
@@ -262,7 +314,7 @@ func handlePull(
 
 		shadowFile, err := ReadShadowFile(shadowFilepath)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't read shadow file %s", shadowFilepath,
 			)
 		}
@@ -271,7 +323,7 @@ func handlePull(
 
 		err = writeShadows(shadows, shadowFile)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't write shadow entries to %s", shadowFilepath,
 			)
 		}
@@ -287,7 +339,7 @@ func handlePull(
 			shouldOverwriteAuthorizedKeys,
 		)
 		if err != nil {
-			fatalh(
+			return hierr.Errorf(
 				err, "can't update ssh keys",
 			)
 		}
@@ -298,20 +350,19 @@ func handlePull(
 		)
 	}
 
-	return
+	return nil
 }
 
 func getPasswordChangeSalts(
-	upstream *ShadowdUpstream, pool, user string,
+	upstream *ShadowdUpstream, pool, username string,
 ) ([]string, error) {
 	shadowdHosts, err := upstream.GetAliveShadowdHosts()
 	if err != nil {
 		return nil, err
 	}
 
-	shadowFound := false
 	for _, shadowdHost := range shadowdHosts {
-		shadow, err := shadowdHost.GetPasswordChangeSalts(pool, username)
+		salts, err := shadowdHost.GetPasswordChangeSalts(pool, username)
 		if err != nil {
 			switch err.(type) {
 			case NotFoundError:
@@ -332,26 +383,54 @@ func getPasswordChangeSalts(
 			continue
 		}
 
-		shadowFound = true
-		shadows = append(shadows, shadow)
-		break
+		return salts, nil
 	}
 
-	if useUsersFromShadowFile && !shadowFound && len(shadowdHosts) > 1 {
-		return &shadows, fmt.Errorf(
-			"all shadowd servers are not aware of %s",
-			user{username, pool},
+	return nil, fmt.Errorf(
+		"no information available for %s in all shadowd servers",
+		user{username, pool},
+	)
+}
+
+func changePassword(
+	upstream *ShadowdUpstream,
+	pool, username string, shadows []string, password string,
+) error {
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
+	if err != nil {
+		return err
+	}
+
+	tracef("shadows: %q", shadows)
+
+	for _, shadowdHost := range shadowdHosts {
+		err = shadowdHost.ChangePassword(
+			pool, username, shadows, password,
 		)
+		if err != nil {
+			switch err.(type) {
+			case NotFoundError:
+				warningf(
+					"[%s] is not aware of %s",
+					shadowdHost.GetAddr(), user{username, pool},
+				)
+
+			default:
+				shadowdHost.SetIsAlive(false)
+
+				errorh(
+					err,
+					"[%s] has gone away", shadowdHost.GetAddr(),
+				)
+			}
+
+			continue
+		}
+
+		return nil
 	}
 
-	if useUsersFromShadowFile && len(shadows) == 0 {
-		return nil, fmt.Errorf(
-			"no information available for %s in all shadowd servers",
-			users{usernames, pool},
-		)
-	}
-
-	return &shadows, nil
+	return errors.New("can't change password")
 }
 
 func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {

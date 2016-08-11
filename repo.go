@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/seletskiy/hierr"
@@ -121,9 +123,9 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 		token = username
 	}
 
-	body, err := doGET(
+	body, err := request(
 		shadowdHost.resource,
-		"https://"+shadowdHost.address+"/ssh/"+token,
+		"GET", "https://"+shadowdHost.address+"/ssh/"+token,
 	)
 	if err != nil {
 		return nil, err
@@ -147,9 +149,9 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 }
 
 func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
-	body, err := doGET(
+	body, err := request(
 		shadowdHost.resource,
-		"https://"+shadowdHost.address+"/t/"+token,
+		"GET", "https://"+shadowdHost.address+"/t/"+token,
 	)
 	if err != nil {
 		return "", err
@@ -159,8 +161,9 @@ func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
 }
 
 func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
-	body, err := doGET(
+	body, err := request(
 		shadowdHost.resource,
+		"GET",
 		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(base, "/")+"/",
 	)
 	if err != nil {
@@ -181,16 +184,43 @@ func (shadowdHost *ShadowdHost) GetPasswordChangeSalts(
 		token = username
 	}
 
-	body, err := doPUT(
+	body, err := request(
 		shadowdHost.resource,
+		"PUT",
 		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(token, "/"),
-		nil,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return strings.Split(body, "\n"), nil
+	return strings.Split(strings.TrimSuffix(body, "\n"), "\n"), nil
+}
+
+func (shadowdHost *ShadowdHost) ChangePassword(
+	pool, username string, shadows []string, password string,
+) error {
+	var token string
+
+	if pool != "" {
+		token = pool + "/" + username
+	} else {
+		token = username
+	}
+
+	_, err := request(
+		shadowdHost.resource,
+		"PUT",
+		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(token, "/"),
+		url.Values{
+			"shadow[]": shadows,
+			"password": []string{password},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func NewShadowdUpstream(
@@ -281,29 +311,34 @@ func readHTTPResponse(response *http.Response) (string, error) {
 		)
 	}
 
-	tracef("body: %s", body)
+	tracef("response: '%s'", string(body))
 
 	return string(body), nil
 }
 
-func doGET(client *http.Client, url string) (string, error) {
-	debugf("GET %s", url)
+func request(
+	client *http.Client,
+	method string,
+	url string,
+	body ...url.Values,
+) (string, error) {
+	var payload string
+	if len(body) > 0 {
+		payload = body[0].Encode()
+	}
 
-	response, err := client.Get(url)
+	debugf("%s %s %s", method, url, payload)
+
+	request, err := http.NewRequest(
+		method,
+		url,
+		bytes.NewBufferString(payload),
+	)
 	if err != nil {
 		return "", err
 	}
 
-	return readHTTPResponse(response)
-}
-
-func doPUT(client *http.Client, url string) (string, error) {
-	debugf("PUT %s", url)
-
-	request, err := http.NewRequest("PUT", url, payload)
-	if err != nil {
-		return "", err
-	}
+	request.Header.Set("User-Agent", "shadowc/"+version)
 
 	response, err := client.Do(request)
 	if err != nil {

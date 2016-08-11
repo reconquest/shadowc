@@ -1,78 +1,55 @@
 package main
 
-import (
-	"fmt"
-	"strings"
-
-	"github.com/seletskiy/hierr"
-)
-
-const (
-	loggerFormat       = `${level:%s\::right:false} ${time} %s`
-	loggerFormatLength = 28
-)
+import "github.com/seletskiy/hierr"
 
 func fatalf(format string, values ...interface{}) {
-	logger.Fatal(wrapLines(format, values...))
+	logger.Fatalf(format, values...)
 }
 
 func errorf(format string, values ...interface{}) {
-	logger.Error(wrapLines(format, values...))
+	logger.Errorf(format, values...)
 }
 
 func warningf(format string, values ...interface{}) {
-	logger.Warning(wrapLines(format, values...))
+	logger.Warningf(format, values...)
 }
 
 func infof(format string, values ...interface{}) {
-	logger.Info(wrapLines(format, values...))
+	logger.Infof(format, values...)
 }
 
 func debugf(format string, values ...interface{}) {
-	logger.Debug(wrapLines(format, values...))
+	logger.Debugf(format, values...)
 }
 
 func tracef(format string, values ...interface{}) {
-	logger.Trace(wrapLines(format, values...))
+	logger.Tracef(format, values...)
 }
 
 func debugln(value interface{}) {
-	logger.Debug(wrapLines("%s", value))
+	logger.Debug(value)
 }
 
 func infoln(value interface{}) {
-	logger.Info(wrapLines("%s", value))
+	logger.Info(value)
 }
 
 func fatalln(value interface{}) {
-	logger.Fatal(wrapLines("%s", value))
+	logger.Fatal(value)
 }
 
 func errorln(value interface{}) {
-	logger.Error(wrapLines("%s", value))
+	logger.Error(value)
 }
 
 func fatalh(err error, format string, args ...interface{}) {
-	logger.Fatal(wrapLines("%s", hierr.Errorf(err, format, args...)))
+	logger.Fatal(hierr.Errorf(err, format, args...))
 }
 
 func warningh(err error, format string, args ...interface{}) {
-	logger.Warning(wrapLines("%s", hierr.Errorf(err, format, args...)))
+	logger.Warning(hierr.Errorf(err, format, args...))
 }
 
 func errorh(err error, format string, args ...interface{}) {
-	logger.Error(wrapLines("%s", hierr.Errorf(err, format, args...)))
-}
-
-func wrapLines(format string, values ...interface{}) string {
-	contents := fmt.Sprintf(format, values...)
-	contents = strings.TrimSuffix(contents, "\n")
-	contents = strings.Replace(
-		contents,
-		"\n",
-		"\n"+strings.Repeat(" ", loggerFormatLength),
-		-1,
-	)
-
-	return contents
+	logger.Error(hierr.Errorf(err, format, args...))
 }

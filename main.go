@@ -92,6 +92,8 @@ var (
 func main() {
 	args := godocs.MustParse(usage, version, godocs.UsePager)
 
+	logger.SetIndentLines(true)
+
 	logger.SetFormat(
 		colorgful.MustApplyDefaultTheme(
 			"${time} ${level:[%s]:right:short} ${prefix}%s",

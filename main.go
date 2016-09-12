@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kovetskiy/executil"
-	"github.com/kovetskiy/go-srv"
+	"github.com/reconquest/executil-go"
+	"github.com/reconquest/srv-go"
 	"github.com/kovetskiy/godocs"
 	"github.com/kovetskiy/lorg"
 	"github.com/reconquest/colorgful"
-	"github.com/seletskiy/hierr"
+	"github.com/reconquest/hierr-go"
 )
 
 var version = "3.0"

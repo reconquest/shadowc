@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/seletskiy/hierr"
+	"github.com/reconquest/hierr-go"
 )
 
 func getUsersHomeDirs(passwdPath string) (map[string]string, error) {

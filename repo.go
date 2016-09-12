@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/seletskiy/hierr"
+	"github.com/reconquest/hierr-go"
 )
 
 type ShadowdHost struct {

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/seletskiy/hierr"
+import "github.com/reconquest/hierr-go"
 
 func fatalf(format string, values ...interface{}) {
 	logger.Fatalf(format, values...)

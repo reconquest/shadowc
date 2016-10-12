@@ -4,22 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/docopt/docopt-go"
-	"github.com/kovetskiy/executil"
-	"github.com/kovetskiy/go-srv"
-	"github.com/seletskiy/hierr"
+	"github.com/reconquest/executil-go"
+	"github.com/reconquest/srv-go"
+	"github.com/kovetskiy/godocs"
+	"github.com/kovetskiy/lorg"
+	"github.com/reconquest/colorgful"
+	"github.com/reconquest/hierr-go"
 )
 
-var version = "2.0"
-
-const usage = `shadowc, client of login distribution service.
+var version = "3.0"
+var usage = `shadowc, client of login distribution service.
 
 shadowc will request shadow hash entries from specified server and update
 shadow file (/etc/shadow) accordingly.
@@ -28,23 +28,26 @@ It is capable of requesting users list from shadowd server and creating them,
 as well as updating theirs SSH keys (authorized_keys).
 
 Most common invocation is:
-    shadowc -KtC -p <pool-name> --all
+  shadowc -KtC -p <pool> --all
 
-    This call will request all users from the pool denoted by <pool-name>,
-    create them if necessary, request new hash entries, write them into
-    /etc/shadow, request SSH keys and overwrite authorized_keys file for each
-    user.
+  This call will request all users from the pool denoted by <pool>,
+  create them if necessary, request new hash entries, write them into
+  /etc/shadow, request SSH keys and overwrite authorized_keys file for each
+  user.
 
-    Requests will be sent to addresses which resolves from SRV record _shadowd.
+  Requests will be sent to addresses which resolves from SRV record _shadowd.
 
 Usage:
-    shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] [-s <addr>...] -u <user>...
-    shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  [-s <addr>...] --all
-    shadowc [options] [-K [-t]] [-p <pool>] -s <addr>... --update
-    shadowc -v | --version
-    shadowc -h | --help
+  shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] [-s <addr>...] -u <user>...
+  shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  [-s <addr>...] --all
+  shadowc [options] [-K [-t]] [-p <pool>] -s <addr>... --update
+  shadowc [options] -P [-s <addr>...] [-p <pool>] -u <user>
+  shadowc -v | --version
+  shadowc -h | --help
 
 Options:
+  -P --password         Generate new hash table for specified user. Will prompt
+                         for old and new passwords.
   -C --create           Create user if it does not exists. User will be created with
                          command 'useradd'. Additional parameters for 'useradd' can be
                          passed using option '-g'.
@@ -64,9 +67,9 @@ Options:
                          [default: _shadowd].
   -p --pool <pool>      Use specified hash tables pool on servers.
   -u --user <user>      Set user which needs shadow entry.
-  -a --all              Request all users from specified pull and write shadow entries
+  -a --all              Request all users from specified pool and write shadow entries
                          for them.
-  -u --update           Try to update shadow entries for all users from shadow file
+  -e --update           Try to update shadow entries for all users from shadow file
                          which already has passwords.
   -c --cert <path>      Set certificate file path [default: /etc/shadowc/cert.pem].
   -f --shadow <file>    Set shadow file path [default: /etc/shadow].
@@ -74,162 +77,375 @@ Options:
                          [default: /etc/passwd]
   --no-srv              Do not try to find shadowd addresses prefixed by '_' in SRV
                          records.
+  --debug               Show debug messages.
+  --trace               Show trace messages.
   -h --help             Show this screen.
   -v --version          Show version.
 `
 
+var (
+	logger    = lorg.NewLog()
+	debugMode = false
+	traceMode = false
+)
+
 func main() {
-	args, err := docopt.Parse(usage, nil, true, "shadowc "+version, false)
-	if err != nil {
-		panic(err)
-	}
+	args := godocs.MustParse(usage, version, godocs.UsePager)
 
-	var (
-		addresses              = args["--server"].([]string)
-		shadowFilepath         = args["--shadow"].(string)
-		certificateFilepath    = args["--cert"].(string)
-		useUsersFromShadowFile = args["--update"].(bool)
-		requestUsersFromPool   = args["--all"].(bool)
-		canCreateUser          = args["--create"].(bool)
-		canUpdateSSHKeys       = args["--keys"].(bool)
-		userAddArgs            = args["--useradd"].(string)
-		passwdFilePath         = args["--passwd"].(string)
-		noSRV                  = args["--no-srv"].(bool)
+	logger.SetIndentLines(true)
 
-		shouldOverwriteAuthorizedKeys = args["--overwrite-keys"].(bool)
+	logger.SetFormat(
+		colorgful.MustApplyDefaultTheme(
+			"${time} ${level:[%s]:right:short} ${prefix}%s",
+			colorgful.Dark,
+		),
 	)
 
-	certificateDirectory := filepath.Dir(certificateFilepath)
-	if _, err := os.Stat(certificateDirectory + "/key.pem"); err == nil {
-		log.Fatalln(
-			"Key file SHOULD NOT be located on the client and " +
-				"SHOULD NOT leave shadowd host. " +
+	debugMode = args["--debug"].(bool)
+	if debugMode {
+		logger.SetLevel(lorg.LevelDebug)
+	}
+
+	traceMode = args["--trace"].(bool)
+	if traceMode {
+		debugMode = true
+		logger.SetLevel(lorg.LevelTrace)
+	}
+
+	_, err := os.Stat(filepath.Dir(args["--cert"].(string)) + "/key.pem")
+	if err == nil {
+		fatalf(
+			"Key file SHOULD NOT be located on the client machine and " +
+				"SHOULD NOT leave shadowd server. " +
 				"Please, generate new certificate pair and " +
 				"replace certificate file on the clients.",
 		)
 	}
 
-	var poolName string
-	if args["--pool"] != nil {
-		poolName = args["--pool"].(string)
-	}
-
-	if !noSRV {
+	addresses := args["--server"].([]string)
+	if !args["--no-srv"].(bool) {
 		addresses = tryToResolveSRV(addresses)
 	}
 
-	shadowdUpstream, err := NewShadowdUpstream(addresses, certificateFilepath)
+	upstream, err := NewShadowdUpstream(addresses, args["--cert"].(string))
 	if err != nil {
-		log.Fatalln(err)
+		fatalh(err, "can't initialize shadowd client")
 	}
 
-	var users []string
 	switch {
-	case useUsersFromShadowFile:
-		users, err = getUsersWithPasswords(shadowFilepath)
-		if err != nil {
-			hierr.Fatalf(
-				err, "can't get list of users from %s", shadowFilepath,
-			)
-		}
-	case requestUsersFromPool:
-		users, err = getAllUsersFromPool(poolName, shadowdUpstream)
-		if err != nil {
-			hierr.Fatalf(
-				err, "can't get users from pool '%s'", poolName,
-			)
-		}
-
-		fmt.Printf(
-			"Fetched %d entries from pool '%s': %s\n",
-			len(users), poolName, strings.Join(users, ", "),
-		)
+	case args["--password"].(bool):
+		err = handleChangePassword(upstream, args)
 
 	default:
-		users = args["--user"].([]string)
+		err = handlePull(upstream, args)
 	}
+
+	if err != nil {
+		fatalln(err)
+	}
+}
+
+func handleChangePassword(
+	upstream *ShadowdUpstream, args map[string]interface{},
+) error {
+	var (
+		username = args["--user"].([]string)[0]
+		pool, _  = args["--pool"].(string)
+	)
+
+	if username == "" {
+		return errors.New("username can't be empty")
+	}
+
+	oldpassword, err := getPassword("Password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for password",
+		)
+	}
+
+	password, err := getPassword("New password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for new password",
+		)
+	}
+
+	proofPassword, err := getPassword("Repeat new password: ")
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't prompt for repeat new password",
+		)
+	}
+
+	if proofPassword != password {
+		return errors.New("specified passwords do not match")
+	}
+
+	if password == "" {
+		return errors.New("password can't be empty")
+	}
+
+	infof("retrieving shadow salts")
+
+	salts, err := getPasswordChangeSalts(upstream, pool, username)
+	if err != nil {
+		return hierr.Errorf(
+			err, "can't retrieve salts for changing password",
+		)
+	}
+
+	infof(
+		"generating proof shadows using " +
+			"specified password and retrieved salts",
+	)
+
+	shadows := []string{}
+	for _, salt := range salts {
+		shadows = append(shadows, crypt(oldpassword, salt))
+	}
+
+	infof("requesting hash table generating with new password")
+
+	err = changePassword(upstream, pool, username, shadows, password)
+	if err != nil {
+		return err
+	}
+
+	infof("hash table for %s successfully generated", user{username, pool})
+
+	return nil
+}
+
+func handlePull(
+	upstream *ShadowdUpstream, args map[string]interface{},
+) error {
+	var (
+		shadowFilepath         = args["--shadow"].(string)
+		useUsersFromShadowFile = args["--update"].(bool)
+		useUsersFromRemotePool = args["--all"].(bool)
+		shouldCreateUser       = args["--create"].(bool)
+		shouldUpdateSSHKeys    = args["--keys"].(bool)
+		useraddArgs            = args["--useradd"].(string)
+		passwdFilePath         = args["--passwd"].(string)
+		pool, _                = args["--pool"].(string)
+
+		shouldOverwriteAuthorizedKeys = args["--overwrite-keys"].(bool)
+	)
+
+	var usernames []string
+	switch {
+	case useUsersFromShadowFile:
+		infof(
+			"retrieving users with passwords from shadow file %s",
+			shadowFilepath,
+		)
+
+		var err error
+		usernames, err = getUsersWithPasswords(shadowFilepath)
+		if err != nil {
+			return hierr.Errorf(
+				err, "can't extract users from shadow file %s", shadowFilepath,
+			)
+		}
+
+	case useUsersFromRemotePool:
+		infof(
+			"retrieving users from remote pool %s",
+			pool,
+		)
+
+		var err error
+		usernames, err = getAllUsersFromPool(pool, upstream)
+		if err != nil {
+			return hierr.Errorf(
+				err, "can't retrieve users within pool %s", pool,
+			)
+		}
+
+	default:
+		usernames = args["--user"].([]string)
+		for _, username := range usernames {
+			if username == "" {
+				return errors.New("username can't be empty")
+			}
+		}
+	}
+
+	infof(
+		"retrieving shadow entries for %s",
+		users{usernames, pool},
+	)
 
 	shadows, err := getShadows(
-		users, shadowdUpstream, poolName, useUsersFromShadowFile,
+		usernames, upstream, pool, useUsersFromShadowFile,
 	)
 	if err != nil {
-		hierr.Fatalf(
-			err, "can't get shadows for %s", strings.Join(users, ", "),
-		)
+		return hierr.Errorf(err, "can't retrieve shadow entries")
 	}
+
+	infof(
+		"retrieving ssh keys for %s",
+		users{usernames, pool},
+	)
 
 	authorizedKeys, err := getAuthorizedKeys(
-		users, shadowdUpstream, poolName,
+		usernames, upstream, pool,
 	)
 	if err != nil {
-		hierr.Fatalf(
-			err, "can't get authorized keys for %s", strings.Join(users, ", "),
+		return hierr.Errorf(
+			err, "can't retrieve authorized keys for %s",
+			users{usernames, pool},
 		)
 	}
 
-	shadowFile, err := ReadShadowFile(shadowFilepath)
-	if err != nil {
-		hierr.Fatalf(
-			err, "can't read shadow file %s", shadowFilepath,
-		)
-	}
+	if shouldCreateUser {
+		infof("reading shadow file %s", shadowFilepath)
 
-	if canCreateUser {
+		shadowFile, err := ReadShadowFile(shadowFilepath)
+		if err != nil {
+			return hierr.Errorf(
+				err, "can't read shadow file %s", shadowFilepath,
+			)
+		}
+
 		for _, shadow := range *shadows {
-			_, err := shadowFile.GetUserIndex(shadow.User)
+			_, err := shadowFile.GetUserIndex(shadow.Username)
 			if err != nil {
-				fmt.Printf("Creating user '%s'...\n", shadow.User)
-				err := createUser(shadow.User, userAddArgs)
+				infof("creating user %s", shadow.Username)
+
+				err := createUser(shadow.Username, useraddArgs)
 				if err != nil {
-					hierr.Fatalf(
-						err, "can't create user '%s'", shadow.User,
+					return hierr.Errorf(
+						err, "can't create user %s", shadow.Username,
 					)
 				}
 			}
 		}
-
-		shadowFile, err = ReadShadowFile(shadowFilepath)
-		if err != nil {
-			hierr.Fatalf(
-				err, "can't read shadow file %s", shadowFilepath,
-			)
-		}
 	}
 
 	if len(*shadows) > 0 {
-		fmt.Printf("Writing %d shadow entries...\n", len(*shadows))
+		infof("reading shadow file %s", shadowFilepath)
+
+		shadowFile, err := ReadShadowFile(shadowFilepath)
+		if err != nil {
+			return hierr.Errorf(
+				err, "can't read shadow file %s", shadowFilepath,
+			)
+		}
+
+		infof("updating %d shadow entries", len(*shadows))
 
 		err = writeShadows(shadows, shadowFile)
 		if err != nil {
-			hierr.Fatalf(
+			return hierr.Errorf(
 				err, "can't write shadow entries to %s", shadowFilepath,
 			)
 		}
 
-		fmt.Println("Shadow information updated")
+		infof("shadow entries updated", len(*shadows))
 	}
 
-	if canUpdateSSHKeys {
-		fmt.Printf("Updating %d SSH keys...\n", len(authorizedKeys))
+	if shouldUpdateSSHKeys {
+		infof("updating %d ssh keys", len(authorizedKeys))
 
-		addedKeysTotal := 0
-
-		addedKeysTotal, err = writeSSHKeys(
-			users, authorizedKeys, passwdFilePath,
+		written, err := writeSSHKeys(
+			usernames, authorizedKeys, passwdFilePath,
 			shouldOverwriteAuthorizedKeys,
 		)
 		if err != nil {
-			hierr.Fatalf(
-				err, "can't write ssh keys",
+			return hierr.Errorf(
+				err, "can't update ssh keys",
 			)
 		}
 
-		fmt.Printf(
-			"SSH keys updated: %d new, %d already installed\n",
-			addedKeysTotal,
-			len(authorizedKeys)-addedKeysTotal,
+		infof(
+			"ssh keys updated: %d new, %d already installed",
+			written, len(authorizedKeys)-written,
 		)
 	}
+
+	return nil
+}
+
+func getPasswordChangeSalts(
+	upstream *ShadowdUpstream, pool, username string,
+) ([]string, error) {
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, shadowdHost := range shadowdHosts {
+		salts, err := shadowdHost.GetPasswordChangeSalts(pool, username)
+		if err != nil {
+			switch err.(type) {
+			case NotFoundError:
+				warningf(
+					"[%s] is not aware of %s",
+					shadowdHost.GetAddr(), user{username, pool},
+				)
+
+			default:
+				shadowdHost.SetIsAlive(false)
+
+				errorh(
+					err,
+					"[%s] has gone away", shadowdHost.GetAddr(),
+				)
+			}
+
+			continue
+		}
+
+		return salts, nil
+	}
+
+	return nil, fmt.Errorf(
+		"no information available for %s in all shadowd servers",
+		user{username, pool},
+	)
+}
+
+func changePassword(
+	upstream *ShadowdUpstream,
+	pool, username string, shadows []string, password string,
+) error {
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
+	if err != nil {
+		return err
+	}
+
+	tracef("shadows: %q", shadows)
+
+	for _, shadowdHost := range shadowdHosts {
+		err = shadowdHost.ChangePassword(
+			pool, username, shadows, password,
+		)
+		if err != nil {
+			switch err.(type) {
+			case NotFoundError:
+				warningf(
+					"[%s] is not aware of %s",
+					shadowdHost.GetAddr(), user{username, pool},
+				)
+
+			default:
+				shadowdHost.SetIsAlive(false)
+
+				errorh(
+					err,
+					"[%s] has gone away", shadowdHost.GetAddr(),
+				)
+			}
+
+			continue
+		}
+
+		return nil
+	}
+
+	return errors.New("can't change password")
 }
 
 func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
@@ -240,7 +456,7 @@ func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 	)
 	if err != nil {
 		return hierr.Errorf(
-			err, "can't get temporary file",
+			err, "can't create temporary file",
 		)
 	}
 	defer temporaryFile.Close()
@@ -249,7 +465,8 @@ func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 		err := shadowFile.SetShadow(shadow)
 		if err != nil {
 			return hierr.Errorf(
-				err, "can't set shadow record for user %s", shadow.User,
+				err, "can't set shadow record for user %s",
+				shadow.Username,
 			)
 		}
 	}
@@ -257,21 +474,23 @@ func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 	_, err = shadowFile.Write(temporaryFile)
 	if err != nil {
 		return hierr.Errorf(
-			err, "can't write temporary file",
+			err, "can't write temporary shadow file",
 		)
 	}
 
 	err = temporaryFile.Close()
 	if err != nil {
 		return hierr.Errorf(
-			err, "can't close temporary file",
+			err, "can't close temporary shadow file",
 		)
 	}
 
 	err = os.Rename(temporaryFile.Name(), shadowFile.GetPath())
 	if err != nil {
 		return hierr.Errorf(
-			err, "can't rename temporary file to shadow file",
+			err,
+			"can't rename temporary file (%s) to shadow file (%s)",
+			temporaryFile.Name(), shadowFile.GetPath(),
 		)
 	}
 
@@ -279,52 +498,48 @@ func writeShadows(shadows *Shadows, shadowFile *ShadowFile) error {
 }
 
 func writeSSHKeys(
-	users []string, keys AuthorizedKeys, passwdFilePath string,
+	usernames []string, keys AuthorizedKeys, passwdFilePath string,
 	shouldOverwriteAuthorizedKeys bool,
 ) (int, error) {
 	homeDirs, err := getUsersHomeDirs(passwdFilePath)
 	if err != nil {
 		return 0, hierr.Errorf(
-			err, "can't get users home directories",
+			err, "can't get users home directories from passwd file %s",
+			passwdFilePath,
 		)
 	}
 
-	addedKeysTotal := 0
+	total := 0
 
-	for _, user := range users {
-		if _, ok := keys[user]; !ok {
+	for _, user := range usernames {
+		key, ok := keys[user]
+		if !ok {
 			continue
 		}
 
-		if _, ok := homeDirs[user]; !ok {
-			log.Printf("no home directory found for user '%s'", user)
+		home, ok := homeDirs[user]
+		if !ok {
+			infof("no home directory found for user %s, skipping", user)
 			continue
 		}
 
-		homeDir := homeDirs[user]
-
-		authorizedKeysFilePath := filepath.Join(
-			homeDir, ".ssh", "authorized_keys",
+		path := filepath.Join(
+			home, ".ssh", "authorized_keys",
 		)
 
-		n, err := writeAuthorizedKeysFile(
-			user,
-			authorizedKeysFilePath, keys[user],
-			shouldOverwriteAuthorizedKeys,
+		written, err := writeAuthorizedKeysFile(
+			user, path, key, shouldOverwriteAuthorizedKeys,
 		)
-
-		addedKeysTotal += n
-
 		if err != nil {
-			log.Printf(
-				"can't update user '%s' SSH keys: %s",
-				user,
-				err,
+			return total, hierr.Errorf(
+				err, "can't update user %s ssh keys", user,
 			)
 		}
+
+		total += written
 	}
 
-	return addedKeysTotal, nil
+	return total, nil
 }
 
 func writeAuthorizedKeysFile(
@@ -333,15 +548,17 @@ func writeAuthorizedKeysFile(
 	shouldOverwrite bool,
 ) (int, error) {
 	dir := filepath.Dir(path)
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+
+	_, err := os.Stat(dir)
+	if os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0700)
 		if err != nil {
 			return 0, hierr.Errorf(
-				err, "can't create SSH keys directory %s", dir,
+				err, "can't create directory at %s", dir,
 			)
 		}
 
-		err := changeOwner(user, dir)
+		err = changeOwner(user, dir)
 		if err != nil {
 			return 0, hierr.Errorf(
 				err, "can't change directory %s owner to %s", dir, user,
@@ -353,8 +570,6 @@ func writeAuthorizedKeysFile(
 	if shouldOverwrite {
 		authorizedKeysFile = NewAuthorizedKeysFile(path)
 	} else {
-		var err error
-
 		authorizedKeysFile, err = ReadAuthorizedKeysFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -367,23 +582,23 @@ func writeAuthorizedKeysFile(
 		}
 	}
 
-	addedKeysCount := 0
+	added := 0
 	for _, sshKey := range sshKeys {
-		added := authorizedKeysFile.AddSSHKey(sshKey)
-		if added {
-			addedKeysCount++
-			fmt.Printf(
-				"SSH key with comment '%s' added to user '%s'\n",
-				sshKey.GetComment(),
-				user,
+		success := authorizedKeysFile.AddSSHKey(sshKey)
+		if success {
+			infof(
+				"SSH key with comment '%s' added to user %s",
+				sshKey.GetComment(), user,
 			)
+
+			added++
 		}
 	}
 
 	temporaryFile, err := ioutil.TempFile(dir, filepath.Base(dir))
 	if err != nil {
 		return 0, hierr.Errorf(
-			err, "can't craete temporary file in %s", dir,
+			err, "can't create temporary file at %s", dir,
 		)
 	}
 
@@ -397,7 +612,7 @@ func writeAuthorizedKeysFile(
 	err = temporaryFile.Close()
 	if err != nil {
 		return 0, hierr.Errorf(
-			err, "can't close temporary file",
+			err, "can't close authorized_keys temporary file",
 		)
 	}
 
@@ -417,47 +632,36 @@ func writeAuthorizedKeysFile(
 		)
 	}
 
-	return addedKeysCount, err
+	return added, nil
 }
 
 func getShadows(
-	users []string, shadowdUpstream *ShadowdUpstream, poolName string,
+	usernames []string, upstream *ShadowdUpstream, pool string,
 	useUsersFromShadowFile bool,
 ) (*Shadows, error) {
 	shadows := Shadows{}
-	for _, user := range users {
-		shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+	for _, username := range usernames {
+		shadowdHosts, err := upstream.GetAliveShadowdHosts()
 		if err != nil {
 			return nil, err
 		}
 
-		if len(shadowdHosts) == 0 {
-			return nil, fmt.Errorf("no more live servers in shadowd upstream")
-		}
-
 		shadowFound := false
 		for _, shadowdHost := range shadowdHosts {
-			shadow, err := shadowdHost.GetShadow(poolName, user)
+			shadow, err := shadowdHost.GetShadow(pool, username)
 			if err != nil {
 				switch err.(type) {
 				case NotFoundError:
-					err := fmt.Errorf(
-						"no shadow for user '%s' in pool '%s' on '%s': %s",
-						user, poolName, shadowdHost.GetAddr(), err,
+					warningf(
+						"[%s] is not aware of %s",
+						shadowdHost.GetAddr(), user{username, pool},
 					)
-
-					if !useUsersFromShadowFile {
-						return nil, err
-					}
-
-					log.Println(err)
 
 				default:
 					shadowdHost.SetIsAlive(false)
 
-					log.Printf(
-						"error retrieving shadows from host '%s': %s",
-						shadowdHost.GetAddr(), err.Error(),
+					errorh(
+						err, "[%s] has gone away", shadowdHost.GetAddr(),
 					)
 				}
 
@@ -470,18 +674,17 @@ func getShadows(
 		}
 
 		if useUsersFromShadowFile && !shadowFound && len(shadowdHosts) > 1 {
-			log.Printf(
-				"all shadowd hosts are not aware of user '%s' within '%s' pool\n",
-				user, poolName,
+			return &shadows, fmt.Errorf(
+				"all shadowd servers are not aware of %s",
+				user{username, pool},
 			)
 		}
 	}
 
 	if useUsersFromShadowFile && len(shadows) == 0 {
 		return nil, fmt.Errorf(
-			"no information available for users '%s' from pool '%s'",
-			strings.Join(users, "', '"),
-			poolName,
+			"no information available for %s in all shadowd servers",
+			users{usernames, pool},
 		)
 	}
 
@@ -489,32 +692,33 @@ func getShadows(
 }
 
 func getAuthorizedKeys(
-	users []string, shadowdUpstream *ShadowdUpstream, poolName string,
+	usernames []string, upstream *ShadowdUpstream, pool string,
 ) (AuthorizedKeys, error) {
 	keys := make(AuthorizedKeys)
 
-	for _, user := range users {
-		shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+	for _, username := range usernames {
+		shadowdHosts, err := upstream.GetAliveShadowdHosts()
 		if err != nil {
 			return nil, err
 		}
 
 		sshKeysFound := false
 		for _, shadowdHost := range shadowdHosts {
-			userKeys, err := shadowdHost.GetSSHKeys(poolName, user)
+			userKeys, err := shadowdHost.GetSSHKeys(pool, username)
 			if err != nil {
 				switch err.(type) {
 				case NotFoundError:
-					// pass
+					warningf(
+						"[%s] is not aware of ssh keys for %s",
+						shadowdHost.GetAddr(), user{username, pool},
+					)
+					continue
 
 				default:
 					shadowdHost.SetIsAlive(false)
 
-					log.Printf(
-						"error retrieving SSH keys for '%s' from '%s': %s",
-						user,
-						shadowdHost.GetAddr(),
-						err.Error(),
+					errorh(
+						err, "[%s] has gone away", shadowdHost.GetAddr(),
 					)
 				}
 
@@ -522,15 +726,12 @@ func getAuthorizedKeys(
 			}
 
 			sshKeysFound = true
-			keys[user] = userKeys
+			keys[username] = userKeys
 			break
 		}
 
-		if !sshKeysFound {
-			log.Printf(
-				"no ssh keys found for '%s' within pool '%s'",
-				user, poolName,
-			)
+		if !sshKeysFound && len(shadowdHosts) > 1 {
+			warningf("no ssh keys found for %s", user{username, pool})
 		}
 	}
 
@@ -541,11 +742,11 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 	contents, err := ioutil.ReadFile(shadowFilepath)
 	if err != nil {
 		return []string{}, hierr.Errorf(
-			err, "can't read file",
+			err, "can't read shadow file %s", shadowFilepath,
 		)
 	}
 
-	users := []string{}
+	usernames := []string{}
 
 	lines := strings.Split(string(contents), "\n")
 	for number, line := range lines {
@@ -555,82 +756,88 @@ func getUsersWithPasswords(shadowFilepath string) ([]string, error) {
 
 		shadowEntry := strings.Split(line, ":")
 		if len(shadowEntry) < 2 {
-			return []string{}, fmt.Errorf(
-				"invalid shadow entry line #%d: '%s'", number+1, line,
+			return []string{}, hierr.Errorf(
+				errors.New(line),
+				"invalid shadow line #%d", number+1,
 			)
 		}
 
 		hash := shadowEntry[1]
 		if len(hash) > 1 && hash[0] == '$' {
-			users = append(users, shadowEntry[0])
+			usernames = append(usernames, shadowEntry[0])
 		}
 	}
 
-	if len(users) == 0 {
+	if len(usernames) == 0 {
 		return nil, errors.New(
-			"shadow file is empty",
+			"shadow file does not contains users with passwords",
 		)
 	}
 
-	return users, nil
+	return usernames, nil
 }
 
 func getAllUsersFromPool(
-	poolName string, shadowdUpstream *ShadowdUpstream,
+	pool string, upstream *ShadowdUpstream,
 ) ([]string, error) {
-	shadowdHosts, err := shadowdUpstream.GetAliveShadowdHosts()
+	shadowdHosts, err := upstream.GetAliveShadowdHosts()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(shadowdHosts) == 0 {
-		return nil, fmt.Errorf("no more live servers in shadowd upstream")
-	}
-
 	var tokens []string
 	for _, shadowdHost := range shadowdHosts {
-		tokens, err = shadowdHost.GetTokens(poolName)
+		tokens, err = shadowdHost.GetTokens(pool)
 		if err != nil {
 			switch err.(type) {
 			case NotFoundError:
-				log.Printf(
-					"shadowd host '%s' returned error: %s",
-					shadowdHost.GetAddr(), err.Error(),
+				warningf(
+					"[%s] is not aware about pool %s",
+					shadowdHost.GetAddr(), pool,
 				)
-				continue
+
 			default:
-				return nil, err
+				shadowdHost.SetIsAlive(false)
+
+				errorh(
+					err, "[%s] has gone away", shadowdHost.GetAddr(),
+				)
 			}
 		}
 	}
 
 	if len(tokens) == 0 {
 		return nil, fmt.Errorf(
-			"no tokens found under '%s' in all upstream",
-			poolName,
+			"no users found within pool %s in all upstream",
+			pool,
 		)
 	}
 
 	return tokens, nil
 }
 
-func createUser(userName string, userAddArgs string) error {
-	_, _, err := executil.Run(exec.Command(
-		"sh", "-c", fmt.Sprintf(
-			"useradd %s %s",
-			userAddArgs,
-			userName,
+func createUser(name, args string) error {
+	_, _, err := executil.Run(
+		exec.Command(
+			"sh", "-c", fmt.Sprintf("useradd %s %s", args, name),
 		),
-	))
+	)
 	return err
 }
 
 func tryToResolveSRV(records []string) []string {
 	addresses := []string{}
 	for _, record := range records {
+		if !strings.HasPrefix(record, "_") {
+			addresses = append(addresses, record)
+			continue
+		}
+
+		infof("resolving SRV DNS record %s", record)
+
 		resolved, err := srv.Resolve(record)
 		if err != nil {
-			log.Println(err)
+			errorln(err)
 			addresses = append(addresses, record)
 			continue
 		}

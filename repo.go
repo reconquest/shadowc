@@ -1,21 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
-	"github.com/seletskiy/hierr"
+	"github.com/reconquest/hierr-go"
 )
 
 type ShadowdHost struct {
-	addr     string
+	address  string
 	resource *http.Client
 	alive    bool
 }
@@ -28,13 +29,17 @@ type NotFoundError struct {
 	error
 }
 
-func NewShadowdHost(addr string, resource *http.Client) (*ShadowdHost, error) {
-	if strings.Contains(addr, "://") {
-		return nil, fmt.Errorf("shadowd host must be in the format host:port")
+func NewShadowdHost(
+	address string, resource *http.Client,
+) (*ShadowdHost, error) {
+	if strings.Contains(address, "://") {
+		return nil, errors.New(
+			"shadowd server address must be in host:port format",
+		)
 	}
 
 	shadowdHost := &ShadowdHost{
-		addr:     addr,
+		address:  address,
 		resource: resource,
 		alive:    true,
 	}
@@ -51,69 +56,79 @@ func (shadowdHost *ShadowdHost) IsAlive() bool {
 }
 
 func (shadowdHost *ShadowdHost) GetAddr() string {
-	return shadowdHost.addr
+	return shadowdHost.address
 }
 
 func (shadowdHost *ShadowdHost) GetShadow(
-	pool string, user string,
+	pool string, username string,
 ) (*Shadow, error) {
 	var token string
 
 	if pool != "" {
-		token = pool + "/" + user
+		token = pool + "/" + username
 	} else {
-		token = user
+		token = username
 	}
 
 	hash, err := shadowdHost.getHash(token)
 	if err != nil {
+		if _, ok := err.(NotFoundError); ok {
+			return nil, err
+		}
+
 		return nil, hierr.Errorf(
-			err, "can't get shadow hash for %s", token,
+			err,
+			"can't retrieve shadow entry for %s",
+			user{username, pool},
 		)
 	}
 
 	proofHash, err := shadowdHost.getHash(token)
 	if err != nil {
+		if _, ok := err.(NotFoundError); ok {
+			return nil, err
+		}
+
 		return nil, hierr.Errorf(
-			err, "can't get proofing shadow hash for %s", token,
+			err,
+			"can't retrieve proofing shadow entry for %s",
+			user{username, pool},
 		)
 	}
 
 	if hash == proofHash {
-		log.Printf(
-			"Warning! Hash for token '%s' was recently requested; "+
+		warningf(
+			"[!] hash for %s was recently requested; "+
 				"possible break-in attempt.",
-			token,
+			user{username, pool},
 		)
 	}
 
 	shadow := &Shadow{
-		User: user,
-		Hash: hash,
+		Username: username,
+		Hash:     hash,
 	}
 
 	return shadow, nil
 }
 
 func (shadowdHost *ShadowdHost) GetSSHKeys(
-	pool string, user string,
+	pool string, username string,
 ) (SSHKeys, error) {
 	var token string
 
 	if pool != "" {
-		token = pool + "/" + user
+		token = pool + "/" + username
 	} else {
-		token = user
+		token = username
 	}
 
-	body, err := doGet(
+	body, err := request(
 		shadowdHost.resource,
-		"https://"+shadowdHost.addr+"/ssh/"+token,
+		"GET", "https://"+shadowdHost.address+"/ssh/"+token,
 	)
 	if err != nil {
-		return nil, hierr.Errorf(
-			err, "request to %s crashed", shadowdHost.addr,
-		)
+		return nil, err
 	}
 
 	sshKeys := SSHKeys{}
@@ -134,36 +149,82 @@ func (shadowdHost *ShadowdHost) GetSSHKeys(
 }
 
 func (shadowdHost *ShadowdHost) getHash(token string) (string, error) {
-	body, err := doGet(
+	body, err := request(
 		shadowdHost.resource,
-		"https://"+shadowdHost.addr+"/t/"+token,
+		"GET", "https://"+shadowdHost.address+"/t/"+token,
 	)
 	if err != nil {
-		return "", hierr.Errorf(
-			err, "request to %s crashed", shadowdHost.addr,
-		)
+		return "", err
 	}
 
 	return strings.TrimRight(body, "\n"), nil
 }
 
 func (shadowdHost *ShadowdHost) GetTokens(base string) ([]string, error) {
-	body, err := doGet(
+	body, err := request(
 		shadowdHost.resource,
-		"https://"+shadowdHost.addr+
-			"/t/"+strings.TrimSuffix(base, "/")+"/",
+		"GET",
+		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(base, "/")+"/",
 	)
 	if err != nil {
-		return nil, hierr.Errorf(
-			err, "request to %s crashed", shadowdHost.addr,
-		)
+		return nil, err
 	}
 
 	return strings.Split(body, "\n"), nil
 }
 
+func (shadowdHost *ShadowdHost) GetPasswordChangeSalts(
+	pool, username string,
+) ([]string, error) {
+	var token string
+
+	if pool != "" {
+		token = pool + "/" + username
+	} else {
+		token = username
+	}
+
+	body, err := request(
+		shadowdHost.resource,
+		"PUT",
+		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(token, "/"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return strings.Split(strings.TrimSuffix(body, "\n"), "\n"), nil
+}
+
+func (shadowdHost *ShadowdHost) ChangePassword(
+	pool, username string, shadows []string, password string,
+) error {
+	var token string
+
+	if pool != "" {
+		token = pool + "/" + username
+	} else {
+		token = username
+	}
+
+	_, err := request(
+		shadowdHost.resource,
+		"PUT",
+		"https://"+shadowdHost.address+"/t/"+strings.TrimSuffix(token, "/"),
+		url.Values{
+			"shadow[]": shadows,
+			"password": []string{password},
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func NewShadowdUpstream(
-	addrs []string, certificateFilepath string,
+	addresss []string, certificateFilepath string,
 ) (*ShadowdUpstream, error) {
 	pemData, err := ioutil.ReadFile(certificateFilepath)
 	if err != nil {
@@ -183,7 +244,7 @@ func NewShadowdUpstream(
 	certificate, err := x509.ParseCertificate(pemBlock.Bytes)
 	if err != nil {
 		return nil, hierr.Errorf(
-			err, "can't parse certificate",
+			err, "can't parse certificate PEM block",
 		)
 	}
 
@@ -199,11 +260,11 @@ func NewShadowdUpstream(
 	}
 
 	upstream := ShadowdUpstream{}
-	for _, addr := range addrs {
-		shadowdHost, err := NewShadowdHost(addr, resource)
+	for _, address := range addresss {
+		shadowdHost, err := NewShadowdHost(address, resource)
 		if err != nil {
 			return nil, hierr.Errorf(
-				err, "can't initialize shadowd client for '%s'", addr,
+				err, "can't initialize shadowd client for %s", address,
 			)
 		}
 
@@ -224,17 +285,24 @@ func (upstream *ShadowdUpstream) GetAliveShadowdHosts() (
 	}
 
 	if len(hosts) < 0 {
-		return nil, errors.New("no living shadowd hosts")
+		return nil, errors.New("all shadowd servers has gone away")
 	}
 
 	return hosts, nil
 }
 
 func readHTTPResponse(response *http.Response) (string, error) {
+	debugf("%s", response.Status)
+
 	if response.StatusCode != 200 {
 		if response.StatusCode == 404 {
 			return "", NotFoundError{
 				errors.New("404 Not Found"),
+			}
+		}
+		if response.StatusCode == 204 {
+			return "", NotFoundError{
+				errors.New("204 No Content"),
 			}
 		}
 
@@ -248,11 +316,36 @@ func readHTTPResponse(response *http.Response) (string, error) {
 		)
 	}
 
+	tracef("response: '%s'", string(body))
+
 	return string(body), nil
 }
 
-func doGet(client *http.Client, url string) (string, error) {
-	response, err := client.Get(url)
+func request(
+	client *http.Client,
+	method string,
+	url string,
+	body ...url.Values,
+) (string, error) {
+	var payload string
+	if len(body) > 0 {
+		payload = body[0].Encode()
+	}
+
+	debugf("%s %s %s", method, url, payload)
+
+	request, err := http.NewRequest(
+		method,
+		url,
+		bytes.NewBufferString(payload),
+	)
+	if err != nil {
+		return "", err
+	}
+
+	request.Header.Set("User-Agent", "shadowc/"+version)
+
+	response, err := client.Do(request)
 	if err != nil {
 		return "", err
 	}

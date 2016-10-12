@@ -2,9 +2,10 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"os"
+
+	"github.com/reconquest/hierr-go"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -25,9 +26,8 @@ type AuthorizedKeysFile struct {
 func ReadSSHKey(key string) (*SSHKey, error) {
 	_, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(key))
 	if err != nil {
-		return nil, fmt.Errorf(
-			"can't parse SSH key: %s",
-			err,
+		return nil, hierr.Errorf(
+			err, "can't parse authorized key",
 		)
 	}
 
@@ -50,21 +50,18 @@ func NewAuthorizedKeysFile(path string) *AuthorizedKeysFile {
 func ReadAuthorizedKeysFile(path string) (*AuthorizedKeysFile, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, hierr.Errorf(
+			err, "can't open authorized keys file",
+		)
 	}
-
-	scanner := bufio.NewScanner(file)
 
 	sshKeys := SSHKeys{}
 
+	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		key, err := ReadSSHKey(scanner.Text())
 		if err != nil {
-			return nil, fmt.Errorf(
-				"error parsing '%s' file: %s",
-				path,
-				err,
-			)
+			return nil, err
 		}
 
 		sshKeys = append(sshKeys, key)

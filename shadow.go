@@ -6,8 +6,8 @@ import (
 
 type (
 	Shadow struct {
-		User string
-		Hash string
+		Username string
+		Hash     string
 	}
 
 	Shadows []*Shadow
@@ -24,7 +24,7 @@ func (shadows *Shadows) String() string {
 
 func (shadow *Shadow) String() string {
 	str := make([]string, 9)
-	str[0] = shadow.User
+	str[0] = shadow.Username
 	str[1] = shadow.Hash
 
 	return strings.Join(str, ":")

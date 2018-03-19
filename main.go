@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/reconquest/executil-go"
-	"github.com/reconquest/srv-go"
 	"github.com/kovetskiy/godocs"
 	"github.com/kovetskiy/lorg"
 	"github.com/reconquest/colorgful"
+	"github.com/reconquest/executil-go"
 	"github.com/reconquest/hierr-go"
+	srv "github.com/reconquest/srv-go"
 )
 
 var version = "3.0"
@@ -38,8 +38,8 @@ Most common invocation is:
   Requests will be sent to addresses which resolves from SRV record _shadowd.
 
 Usage:
-  shadowc [options] [-K [-t]] [-C [-g <args>]] [-p <pool>] [-s <addr>...] -u <user>...
-  shadowc [options] [-K [-t]] [-C [-g <args>]]  -p <pool>  [-s <addr>...] --all
+  shadowc [options] [-K [-t]] [-C [-g <args>]] [-D [--userdel <args>]] [-p <pool>] [-s <addr>...] -u <user>...
+  shadowc [options] [-K [-t]] [-C [-g <args>]] [-D [--userdel <args>]] -p <pool>  [-s <addr>...] --all
   shadowc [options] [-K [-t]] [-p <pool>] -s <addr>... --update
   shadowc [options] -P [-s <addr>...] [-p <pool>] -u <user>
   shadowc -v | --version
@@ -55,6 +55,9 @@ Options:
                          If you want to pass several options to 'useradd', specify
                          one flag '-g' with quoted argument.
                          Like that: '-g "-m -Gwheel"'. [default: -m].
+  -D --delete           Delete user if it does not exists in shadowd.
+  --userdel <args>      Additional parameters for 'userdel' flag when deleting user.
+                         Work like '--useradd' flag for 'useradd'.
   -K --keys             Request SSH keys from shadowd server and append them to the
                          user's authorized_keys file.
   -t --overwrite-keys   Overwrite authorized_keys file instead of appending.
@@ -225,8 +228,10 @@ func handlePull(
 		useUsersFromShadowFile = args["--update"].(bool)
 		useUsersFromRemotePool = args["--all"].(bool)
 		shouldCreateUser       = args["--create"].(bool)
+		shouldDeleteUser       = args["--delete"].(bool)
 		shouldUpdateSSHKeys    = args["--keys"].(bool)
 		useraddArgs            = args["--useradd"].(string)
+		userdelArgs            = args["--userdel"].(string)
 		passwdFilePath         = args["--passwd"].(string)
 		pool, _                = args["--pool"].(string)
 
@@ -320,6 +325,43 @@ func handlePull(
 						err, "can't create user %s", shadow.Username,
 					)
 				}
+			}
+		}
+	}
+
+	if shouldDeleteUser {
+		rawRequredGroup, _, err := executil.Run(exec.Command("basename", pool))
+		if err != nil {
+			return hierr.Errorf(err, "can't get basename from %s", pool)
+		}
+
+		requiredGroup := strings.TrimSpace(string(rawRequredGroup))
+		localUsernames, err := getLocalUsers(requiredGroup)
+		if err != nil {
+			return hierr.Errorf(
+				err, "can't get local users with %s group", requiredGroup,
+			)
+		}
+
+		var outdatedUsernames []string
+
+		for _, username := range localUsernames {
+			outdatedUsernames = append(outdatedUsernames, username)
+			for _, shadow := range *shadows {
+				if shadow.Username == username {
+					outdatedUsernames = outdatedUsernames[:len(outdatedUsernames)-1]
+
+					break
+				}
+			}
+		}
+
+		for _, username := range outdatedUsernames {
+			infof("deleting user %s", username)
+
+			err := deleteUser(username, userdelArgs)
+			if err != nil {
+				return hierr.Errorf(err, "can't delete user %s", username)
 			}
 		}
 	}
@@ -825,6 +867,16 @@ func createUser(name, args string) error {
 	return err
 }
 
+func deleteUser(name, args string) error {
+	_, _, err := executil.Run(
+		exec.Command(
+			"sh", "-c", fmt.Sprintf("userdel %s %s", args, name),
+		),
+	)
+
+	return err
+}
+
 func tryToResolveSRV(records []string) []string {
 	addresses := []string{}
 	for _, record := range records {
@@ -851,4 +903,43 @@ func tryToResolveSRV(records []string) []string {
 func changeOwner(user, path string) error {
 	_, _, err := executil.Run(exec.Command("chown", user+":", path))
 	return err
+}
+
+func getLocalUsers(requiredGroup string) ([]string, error) {
+	var correctUsernames []string
+
+	rawUsernames, _, err := executil.Run(
+		exec.Command("cut", "-d:", "-f1", "/etc/passwd"),
+	)
+	if err != nil {
+		return correctUsernames, hierr.Errorf(
+			err, "can't get users from /etc/password",
+		)
+	}
+
+	usernames := strings.Split(strings.TrimSpace(string(rawUsernames)), "\n")
+	for _, username := range usernames {
+		rawUserGroups, _, err := executil.Run(
+			exec.Command("id", "-Gn", username),
+		)
+		if err != nil {
+			return correctUsernames, hierr.Errorf(
+				err, "can't get groups for user %s", username,
+			)
+		}
+
+		groups := strings.Split(
+			strings.Trim(string(rawUserGroups), "\n"), " ",
+		)
+		for _, group := range groups {
+			if group == requiredGroup {
+				correctUsernames = append(correctUsernames, username)
+
+				break
+			}
+		}
+
+	}
+
+	return correctUsernames, nil
 }
